@@ -97,7 +97,7 @@ function handleEvents(events: GameEvent[]): void {
       showOverlay('Bottle clean!', `Level ${lvl} cleared`, buttons);
     } else if (e.type === 'lost') {
       const lvl = game!.level;
-      showOverlay('Topped out', `${game!.germsLeft} zergs left`, [['Retry', () => startGame(lvl)], ['Menu', showMenu]]);
+      showOverlay('Topped out', `${game!.germsLeft} germs left`, [['Retry', () => startGame(lvl)], ['Menu', showMenu]]);
     }
   }
 }

@@ -1,6 +1,6 @@
 # Dr. Zerg
 
-A browser falling-capsule puzzle game. Line up four of a color to squash the zergs.
+A browser falling-capsule puzzle game. Line up four of a color to squash the germs.
 
 ## Run locally
 

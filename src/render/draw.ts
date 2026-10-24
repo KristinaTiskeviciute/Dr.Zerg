@@ -144,7 +144,7 @@ export function drawCapsuleHalf(
 }
 
 /**
- * A germ ("zerg"): a wobbly blob with a face. Each color has its own look:
+ * A germ: a wobbly blob with a face. Each color has its own look:
  * red has two horns, yellow an antenna, blue three eyes. `frame` (0/1) is the wiggle.
  */
 export function drawGerm(ctx: CanvasRenderingContext2D, px: number, py: number, s: number, color: Color, frame: number): void {
