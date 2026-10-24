@@ -1,0 +1,293 @@
+import {
+  BOARD_COLS,
+  BOARD_ROWS,
+  CLEAR_ANIMATION_MS,
+  FALL_INTERVAL_MS,
+  FAST_GARBAGE_MULTIPLIER,
+  GARBAGE_FALL_STEP_MS,
+  GRAVITY_STEP_MS,
+  LOCK_DELAY_MS,
+  MIN_FALL_INTERVAL_MS,
+  SOFT_DROP_MULTIPLIER,
+  SPEEDUP_EVERY_N_CAPSULES,
+  SPEEDUP_FACTOR,
+  Speed,
+} from '../config';
+import { Board } from './board';
+import { Capsule, capsuleHalves, fits, tryMove, tryRotate } from './capsule';
+import { garbageForChain, pickGarbageColumns } from './garbage';
+import { placeGerms } from './germs';
+import { PieceSequence } from './pieces';
+import { deriveSeed, Rng } from './rng';
+import { Color, Pos } from './types';
+
+export type Phase = 'falling' | 'clearing' | 'settling' | 'garbage' | 'won' | 'lost';
+
+export interface GameOptions {
+  level: number;
+  speed: Speed;
+  /** Shared seed: same seed + level → same germs and capsule sequence. */
+  seed: number;
+  fastGarbage?: boolean;
+  /** Makes this board's garbage placement independent of other players'. */
+  playerSalt?: string;
+  /** Tests: set up the board yourself instead of placing germs. */
+  setupBoard?: (board: Board) => void;
+}
+
+/** Input for one simulation step. Moves/rotations are one-shot; softDrop is held. */
+export interface StepInput {
+  left?: boolean;
+  right?: boolean;
+  rotateCW?: boolean;
+  rotateCCW?: boolean;
+  softDrop?: boolean;
+}
+
+export type GameEvent =
+  | { type: 'move' }
+  | { type: 'rotate' }
+  | { type: 'lock' }
+  | { type: 'clear'; chain: number; lines: number; cells: Pos[] }
+  | { type: 'garbageOut'; colors: Color[] }
+  | { type: 'garbageIn'; count: number }
+  | { type: 'garbageLanded' }
+  | { type: 'won' }
+  | { type: 'lost' };
+
+export class Game {
+  readonly board = new Board(BOARD_COLS, BOARD_ROWS);
+  readonly level: number;
+  readonly speed: Speed;
+  readonly fastGarbage: boolean;
+
+  phase: Phase = 'falling';
+  active: Capsule | null = null;
+  /** Index of the current capsule in the shared sequence (= capsules locked so far). */
+  pieceIndex = 0;
+  /** Cells currently popping (during 'clearing'). */
+  clearingCells: Pos[] = [];
+  /** 0–1 progress of the current clear animation. */
+  clearProgress = 0;
+
+  private readonly pieces: PieceSequence;
+  private readonly garbageRng: Rng;
+  private readonly garbageQueue: Color[][] = [];
+  private events: GameEvent[] = [];
+
+  private fallTimer = 0;
+  private lockTimer = 0;
+  private phaseTimer = 0;
+  private chainStep = 0;
+  private chainLineColors: Color[] = [];
+  /** True while resolving clears caused by incoming garbage (those don't send garbage back). */
+  private resolvingGarbage = false;
+
+  constructor(opts: GameOptions) {
+    this.level = opts.level;
+    this.speed = opts.speed;
+    this.fastGarbage = opts.fastGarbage ?? false;
+    this.pieces = new PieceSequence(deriveSeed(opts.seed, 'pieces'));
+    this.garbageRng = new Rng(deriveSeed(opts.seed, 'garbage:' + (opts.playerSalt ?? '')));
+    if (opts.setupBoard) opts.setupBoard(this.board);
+    else placeGerms(this.board, opts.level, new Rng(deriveSeed(opts.seed, 'germs')));
+    this.spawn();
+  }
+
+  get nextColors(): readonly [Color, Color] {
+    return this.pieces.colorsAt(this.pieceIndex + 1);
+  }
+
+  get germsLeft(): number {
+    return this.board.germCount();
+  }
+
+  get isOver(): boolean {
+    return this.phase === 'won' || this.phase === 'lost';
+  }
+
+  get pendingGarbage(): number {
+    return this.garbageQueue.reduce((n, a) => n + a.length, 0);
+  }
+
+  fallIntervalMs(): number {
+    const ramps = Math.floor(this.pieceIndex / SPEEDUP_EVERY_N_CAPSULES);
+    return Math.max(MIN_FALL_INTERVAL_MS, FALL_INTERVAL_MS[this.speed] * SPEEDUP_FACTOR ** ramps);
+  }
+
+  /** Queue an opponent's attack. It drops after the current capsule locks and settles. */
+  receiveGarbage(colors: Color[]): void {
+    if (colors.length === 0 || this.isOver) return;
+    this.garbageQueue.push([...colors]);
+  }
+
+  drainEvents(): GameEvent[] {
+    const e = this.events;
+    this.events = [];
+    return e;
+  }
+
+  step(dt: number, input: StepInput = {}): void {
+    switch (this.phase) {
+      case 'falling': return this.stepFalling(dt, input);
+      case 'clearing': return this.stepClearing(dt);
+      case 'settling': return this.stepSettling(dt);
+      case 'garbage': return this.stepGarbage(dt, input);
+    }
+  }
+
+  // --- Phases ---
+
+  private stepFalling(dt: number, input: StepInput): void {
+    let c = this.active!;
+    const board = this.board;
+
+    if (input.rotateCW || input.rotateCCW) {
+      const r = tryRotate(board, c, !!input.rotateCW);
+      if (r) { c = r; this.emit({ type: 'rotate' }); }
+    }
+    if (input.left !== input.right) {
+      const m = tryMove(board, c, 0, input.left ? -1 : 1);
+      if (m) { c = m; this.emit({ type: 'move' }); }
+    }
+
+    const grounded = !tryMove(board, c, 1, 0);
+    if (grounded) {
+      this.fallTimer = 0;
+      this.lockTimer += dt;
+      this.active = c;
+      if (input.softDrop || this.lockTimer >= LOCK_DELAY_MS) this.lock();
+      return;
+    }
+
+    this.lockTimer = 0;
+    this.fallTimer += dt * (input.softDrop ? SOFT_DROP_MULTIPLIER : 1);
+    const interval = this.fallIntervalMs();
+    if (this.fallTimer >= interval) {
+      this.fallTimer -= interval;
+      c = tryMove(board, c, 1, 0)!;
+      if (!tryMove(board, c, 1, 0)) this.fallTimer = 0;
+    }
+    this.active = c;
+  }
+
+  private stepClearing(dt: number): void {
+    this.phaseTimer += dt;
+    this.clearProgress = Math.min(1, this.phaseTimer / CLEAR_ANIMATION_MS);
+    if (this.phaseTimer < CLEAR_ANIMATION_MS) return;
+    this.board.clear(this.clearingCells);
+    this.clearingCells = [];
+    if (this.board.germCount() === 0) return this.finish('won');
+    this.enter('settling');
+  }
+
+  private stepSettling(dt: number): void {
+    this.phaseTimer += dt;
+    while (this.phaseTimer >= GRAVITY_STEP_MS) {
+      this.phaseTimer -= GRAVITY_STEP_MS;
+      if (!this.board.gravityStep()) return this.resolve();
+    }
+  }
+
+  private stepGarbage(dt: number, input: StepInput): void {
+    const fast = this.fastGarbage && input.softDrop;
+    this.phaseTimer += dt * (fast ? FAST_GARBAGE_MULTIPLIER : 1);
+    while (this.phaseTimer >= GARBAGE_FALL_STEP_MS) {
+      this.phaseTimer -= GARBAGE_FALL_STEP_MS;
+      if (!this.board.gravityStep()) {
+        this.emit({ type: 'garbageLanded' });
+        return this.resolve();
+      }
+    }
+  }
+
+  // --- Transitions ---
+
+  private spawn(): void {
+    const capsule: Capsule = {
+      row: 0,
+      col: Math.floor(BOARD_COLS / 2) - 1,
+      orientation: 0,
+      colors: this.pieces.colorsAt(this.pieceIndex),
+    };
+    if (!fits(this.board, capsule)) {
+      this.active = null;
+      return this.finish('lost');
+    }
+    this.active = capsule;
+    this.fallTimer = 0;
+    this.lockTimer = 0;
+    this.phase = 'falling';
+  }
+
+  private lock(): void {
+    const [a, b] = capsuleHalves(this.active!);
+    this.active = null;
+    this.pieceIndex++;
+    this.emit({ type: 'lock' });
+    if (a.pos.row < 0 || b.pos.row < 0) return this.finish('lost');
+    this.board.placeCapsule(a.pos, a.color, b.pos, b.color);
+    this.chainStep = 0;
+    this.chainLineColors = [];
+    this.resolvingGarbage = false;
+    this.resolve();
+  }
+
+  /** Board is at rest: clear matches if any, otherwise finish this capsule's turn. */
+  private resolve(): void {
+    const matches = this.board.findMatches();
+    if (matches.length > 0) {
+      this.chainStep++;
+      if (!this.resolvingGarbage) this.chainLineColors.push(...matches.map(m => m.color));
+      const seen = new Set<number>();
+      const cells: Pos[] = [];
+      for (const m of matches) {
+        for (const p of m.cells) {
+          const key = p.row * BOARD_COLS + p.col;
+          if (!seen.has(key)) { seen.add(key); cells.push(p); }
+        }
+      }
+      this.clearingCells = cells;
+      this.clearProgress = 0;
+      this.emit({ type: 'clear', chain: this.chainStep, lines: matches.length, cells });
+      return this.enter('clearing');
+    }
+
+    if (!this.resolvingGarbage) {
+      const out = garbageForChain(this.chainLineColors);
+      if (out.length > 0) this.emit({ type: 'garbageOut', colors: out });
+      this.chainLineColors = [];
+    }
+
+    const attack = this.garbageQueue.shift();
+    if (attack) {
+      this.dropGarbage(attack);
+      return;
+    }
+    this.spawn();
+  }
+
+  private dropGarbage(colors: Color[]): void {
+    const cols = pickGarbageColumns(this.board, colors.length, this.garbageRng);
+    cols.forEach((col, i) => this.board.set(0, col, { kind: 'pill', color: colors[i], link: 'none' }));
+    this.resolvingGarbage = true;
+    this.chainStep = 0;
+    this.emit({ type: 'garbageIn', count: cols.length });
+    this.enter('garbage');
+  }
+
+  private enter(phase: Phase): void {
+    this.phase = phase;
+    this.phaseTimer = 0;
+  }
+
+  private finish(result: 'won' | 'lost'): void {
+    this.phase = result;
+    this.garbageQueue.length = 0;
+    this.emit({ type: result });
+  }
+
+  private emit(e: GameEvent): void {
+    this.events.push(e);
+  }
+}
