@@ -7,6 +7,7 @@
     "dev": "vite",
     "dev:server": "vite build && wrangler dev --port 8787 --var DEV_REDIRECT:http://localhost:5173",
     "build": "npm run typecheck && vite build",
+    "deploy": "npm test && npm run build && wrangler deploy",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

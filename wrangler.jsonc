@@ -4,6 +4,9 @@
   "name": "dr-zerg",
   "main": "server/index.ts",
   "compatibility_date": "2026-10-15",
+  // Served at https://dr-zerg.dr-zerg.workers.dev. No per-version preview links.
+  "workers_dev": true,
+  "preview_urls": false,
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",

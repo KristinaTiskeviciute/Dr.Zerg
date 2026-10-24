@@ -429,7 +429,8 @@ function sizeCanvases(): void {
   const vs = session?.kind === 'cpu' || session?.kind === 'online';
   const narrow = window.innerWidth <= 520;
   const availW = window.innerWidth - (narrow ? 32 : 260) - (vs ? 40 : 0);
-  const availH = window.innerHeight - (narrow ? 120 : 32);
+  // Leave room for the page padding, and in versus for the opponent's name above their bottle.
+  const availH = window.innerHeight - (narrow ? 120 : 56) - (vs ? 32 : 0);
   // The canvases stay at sprite resolution; CSS scales them up with crisp (pixelated) edges.
   // Whole-number scales keep every pixel the same size, so prefer one when it's close.
   const fit = Math.max(1, Math.min(availW / (width * (vs ? 1 + OPPONENT_BOARD_SCALE : 1)), availH / height));

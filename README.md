@@ -40,4 +40,24 @@ Dev-only extras: `?play=7` in the URL jumps straight into level 7, and the `9` k
 - [ZzFX](https://github.com/KilledByAPixel/ZzFX) by Frank Force (MIT) — sound effects.
 - [ZzFXM](https://github.com/keithclark/ZzFXM) by Keith Clark and Frank Force (MIT) — music renderer.
 
-Deploy steps will be added at the deploy milestone. Design decisions and the "later" list are in [NOTES.md](NOTES.md).
+## Deploy
+
+Live at **https://dr-zerg.dr-zerg.workers.dev** (Cloudflare Workers, free plan). The Worker serves
+the game and runs the relay; rooms live in eastern North America, between Norway and California.
+
+First time on a computer:
+
+```sh
+npx wrangler login   # opens the browser to log in to Cloudflare (account email must be verified)
+```
+
+Every deploy:
+
+```sh
+npm run deploy       # runs the tests, type-checks, builds dist/, then `wrangler deploy`
+```
+
+Players in a room during a deploy get disconnected and reconnect automatically, but the room's
+state (and any match in progress) is reset, so deploy when nobody's playing.
+
+Design decisions and the "later" list are in [NOTES.md](NOTES.md).
