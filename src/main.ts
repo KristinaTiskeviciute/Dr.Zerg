@@ -1,9 +1,10 @@
+import { audio } from './audio/audio';
 import { MAX_FRAME_MS, MAX_LEVEL, SIM_STEP_MS, Speed } from './config';
 import { Game, GameEvent } from './core/game';
 import { randomSeed } from './core/rng';
 import { COLORS } from './core/types';
 import { KeyboardInput } from './input/keyboard';
-import { boardPixelSize, drawBoard } from './render/draw';
+import { boardPixelSize, drawBoard, drawGerm } from './render/draw';
 import { gameView } from './render/view';
 import { $, loadSettings, saveSettings, Settings, SPEED_LABEL } from './ui/dom';
 
@@ -17,6 +18,27 @@ let game: Game | null = null;
 let paused = false;
 let acc = 0;
 let lastTime = performance.now();
+
+// --- Audio: unlocked by the first key press or click (browser rule) ---
+
+window.addEventListener('keydown', () => audio.unlock(), { capture: true });
+window.addEventListener('pointerdown', () => audio.unlock(), { capture: true });
+
+const muteButton = $<HTMLButtonElement>('#toggle-mute');
+const musicButton = $<HTMLButtonElement>('#toggle-music');
+function renderAudioToggles(): void {
+  muteButton.textContent = audio.muted ? '🔇 Sound' : '🔊 Sound';
+  muteButton.classList.toggle('off', audio.muted);
+  musicButton.textContent = '♪ Music';
+  musicButton.classList.toggle('off', !audio.musicOn);
+}
+muteButton.addEventListener('click', () => { audio.toggleMute(); muteButton.blur(); });
+musicButton.addEventListener('click', () => { audio.toggleMusic(); musicButton.blur(); });
+window.addEventListener('keydown', e => {
+  if (e.code === 'KeyM' && !e.repeat) audio.toggleMute();
+});
+audio.onChange(renderAudioToggles);
+renderAudioToggles();
 
 // --- Menu ---
 
@@ -47,6 +69,7 @@ $('#start').addEventListener('click', () => startGame(settings.level));
 function showMenu(): void {
   game = null;
   keyboard.enabled = false;
+  audio.stopMusic();
   $('#play').classList.add('hidden');
   $('#menu').classList.remove('hidden');
   renderMenu();
@@ -61,13 +84,15 @@ function sizeCanvas(): void {
   const narrow = window.innerWidth <= 520;
   const availW = window.innerWidth - (narrow ? 32 : 220);
   const availH = window.innerHeight - (narrow ? 120 : 32);
-  const scale = Math.max(0.5, Math.min(availW / width, availH / height));
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.round(width * scale * dpr);
-  canvas.height = Math.round(height * scale * dpr);
+  // The canvas stays at sprite resolution; CSS scales it up with crisp (pixelated) edges.
+  // Whole-number scales keep every pixel the same size, so prefer one when it's close.
+  const fit = Math.max(1, Math.min(availW / width, availH / height));
+  const scale = fit - Math.floor(fit) < 0.35 ? Math.floor(fit) : fit;
+  canvas.width = width;
+  canvas.height = height;
   canvas.style.width = `${Math.round(width * scale)}px`;
   canvas.style.height = `${Math.round(height * scale)}px`;
-  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
+  ctx.imageSmoothingEnabled = false;
 }
 window.addEventListener('resize', () => { if (game) sizeCanvas(); });
 
@@ -79,6 +104,7 @@ function startGame(level: number): void {
   acc = 0;
   keyboard.reset();
   keyboard.enabled = true;
+  audio.startMusic();
   hideOverlay();
   $('#menu').classList.add('hidden');
   $('#play').classList.remove('hidden');
@@ -89,7 +115,10 @@ function startGame(level: number): void {
 
 function handleEvents(events: GameEvent[]): void {
   for (const e of events) {
-    if (e.type === 'won') {
+    playSound(e);
+    if (e.type === 'spawn') {
+      keyboard.onNewCapsule();
+    } else if (e.type === 'won') {
       const lvl = game!.level;
       const buttons: [string, () => void][] = [];
       if (lvl < MAX_LEVEL) buttons.push([`Level ${lvl + 1}`, () => startGame(lvl + 1)]);
@@ -102,9 +131,24 @@ function handleEvents(events: GameEvent[]): void {
   }
 }
 
+function playSound(e: GameEvent): void {
+  switch (e.type) {
+    case 'move': return audio.play('move');
+    case 'rotate': return audio.play('rotate');
+    case 'lock': return audio.play('lock');
+    case 'clear': return audio.play('clear', (e.chain - 1) * 3, 0); // rises 3 semitones per chain step
+    case 'garbageOut': return audio.play('attack');
+    case 'garbageIn': return audio.play('incoming');
+    case 'garbageLanded': return audio.play('thud');
+    case 'won': audio.stopMusic(); return audio.jingle('win');
+    case 'lost': audio.stopMusic(); return audio.jingle('lose');
+  }
+}
+
 function togglePause(): void {
   if (!game || game.isOver) return;
   paused = !paused;
+  audio.setMusicPaused(paused);
   keyboard.reset();
   if (paused) showOverlay('Paused', 'Press P to resume', [['Resume', togglePause], ['Quit to menu', showMenu]]);
   else hideOverlay();
@@ -147,6 +191,20 @@ function hideOverlay(): void {
   $('#overlay').classList.add('hidden');
 }
 
+// --- Title screen: the three germs hopping ---
+
+const mascots = $<HTMLCanvasElement>('#mascots');
+const mascotCtx = mascots.getContext('2d')!;
+mascots.width = 16 * 3 + 8 * 2;
+mascots.height = 20;
+function drawMascots(now: number): void {
+  mascotCtx.clearRect(0, 0, mascots.width, mascots.height);
+  COLORS.forEach((color, i) => {
+    const beat = Math.floor(now / 300 + i) % 3;
+    drawGerm(mascotCtx, i * 24, beat === 0 ? 1 : 4, color, beat === 0 ? 1 : 0);
+  });
+}
+
 // --- Loop: fixed-step simulation on the real clock, render every frame ---
 
 function frame(now: number): void {
@@ -162,11 +220,9 @@ function frame(now: number): void {
     }
   }
 
+  if (!game) drawMascots(now);
   if (game) {
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.restore();
     if (!paused) drawBoard(ctx, gameView(game), 0, 0, now);
     const germs = String(game.germsLeft);
     const hud = $('#hud-germs');

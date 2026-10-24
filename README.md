@@ -23,4 +23,11 @@ Dev-only extras: `?play=7` in the URL jumps straight into level 7, and the `9` k
 - `src/ui/` — DOM helpers and settings.
 - `src/config.ts` — every tunable constant.
 
+- `src/audio/` — sound effects and music, generated in code.
+
+## Credits
+
+- [ZzFX](https://github.com/KilledByAPixel/ZzFX) by Frank Force (MIT) — sound effects.
+- [ZzFXM](https://github.com/keithclark/ZzFXM) by Keith Clark and Frank Force (MIT) — music renderer.
+
 Deploy steps will be added at the deploy milestone. Design decisions and the "later" list are in [NOTES.md](NOTES.md).

@@ -49,5 +49,5 @@ export const SIM_STEP_MS = 1000 / 60;
 export const MAX_FRAME_MS = 250; // clamp after tab switches so we don't fast-forward
 
 // --- Rendering ---
-export const CELL_PX = 24;
+export const CELL_PX = 16; // logical pixels per cell (sprite size); the page scales it up
 export const GERM_WIGGLE_MS = 400; // time per wiggle frame

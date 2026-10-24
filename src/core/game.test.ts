@@ -112,6 +112,23 @@ describe('Game', () => {
     expect(out).toEqual({ type: 'garbageOut', colors: [Y, R] });
   });
 
+  it('the preview always shows the capsule that actually spawns next, even during clears', () => {
+    const g = game(b => {
+      b.set(15, 7, { kind: 'germ', color: B });
+      b.set(15, 3, { kind: 'germ', color: R });
+      b.set(14, 3, { kind: 'germ', color: R });
+    });
+    g.active = { row: 0, col: 3, orientation: 1, colors: [R, R] }; // will clear on landing
+    const previews = new Set<string>();
+    for (let i = 0; i < 5000 && g.pieceIndex === 0; i++) g.step(STEP, { softDrop: true });
+    expect(g.phase).toBe('clearing');
+    while (g.phase !== 'falling') {
+      previews.add(JSON.stringify(g.nextColors));
+      g.step(STEP);
+    }
+    expect([...previews]).toEqual([JSON.stringify(g.active!.colors)]);
+  });
+
   it('a single clear sends no garbage', () => {
     expect(garbageForChain([R])).toEqual([]);
     expect(garbageForChain([R, Y])).toEqual([R, Y]);

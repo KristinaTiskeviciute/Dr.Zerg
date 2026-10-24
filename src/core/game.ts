@@ -45,6 +45,7 @@ export interface StepInput {
 }
 
 export type GameEvent =
+  | { type: 'spawn' }
   | { type: 'move' }
   | { type: 'rotate' }
   | { type: 'lock' }
@@ -94,8 +95,9 @@ export class Game {
     this.spawn();
   }
 
+  /** The capsule that will spawn next. Between lock and spawn (clears, garbage) that's pieceIndex itself. */
   get nextColors(): readonly [Color, Color] {
-    return this.pieces.colorsAt(this.pieceIndex + 1);
+    return this.pieces.colorsAt(this.active ? this.pieceIndex + 1 : this.pieceIndex);
   }
 
   get germsLeft(): number {
@@ -218,6 +220,7 @@ export class Game {
     this.fallTimer = 0;
     this.lockTimer = 0;
     this.phase = 'falling';
+    this.emit({ type: 'spawn' });
   }
 
   private lock(): void {

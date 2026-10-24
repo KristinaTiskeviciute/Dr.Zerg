@@ -26,6 +26,8 @@ export class KeyboardInput {
   private dasTimer = 0;
   private repeating = false;
   private freshPress = false;
+  /** Keys held over from the previous capsule that are ignored until released and pressed again (soft drop). */
+  private readonly blocked = new Set<Action>();
   /** While false, keys pass through untouched (so Space still works on menu buttons). */
   enabled = false;
 
@@ -55,6 +57,20 @@ export class KeyboardInput {
     this.horizontal = null;
     this.repeating = false;
     this.freshPress = false;
+    this.blocked.clear();
+  }
+
+  /**
+   * Call when a new capsule spawns. A held soft drop is ignored until pressed again;
+   * a held left/right restarts its auto-repeat (no instant move, then DAS as if newly held).
+   */
+  onNewCapsule(): void {
+    if (this.held.has('softDrop')) this.blocked.add('softDrop');
+    if (this.horizontal && this.held.has(this.horizontal)) {
+      this.freshPress = false;
+      this.repeating = false;
+      this.dasTimer = 0;
+    }
   }
 
   /** Call once per simulation step. */
@@ -62,7 +78,7 @@ export class KeyboardInput {
     const out: StepInput = {
       rotateCW: this.pressed.has('rotateCW'),
       rotateCCW: this.pressed.has('rotateCCW'),
-      softDrop: this.held.has('softDrop') || this.pressed.has('softDrop'),
+      softDrop: !this.blocked.has('softDrop') && (this.held.has('softDrop') || this.pressed.has('softDrop')),
     };
 
     if (this.horizontal) {
@@ -102,6 +118,7 @@ export class KeyboardInput {
     if (e.repeat) return;
     this.held.add(action);
     this.pressed.add(action);
+    this.blocked.delete(action);
     if (action === 'left' || action === 'right') {
       this.horizontal = action;
       this.freshPress = true;
@@ -113,5 +130,6 @@ export class KeyboardInput {
     if (!action || !this.enabled) return;
     e.preventDefault(); // also stops Space from "clicking" a focused button on release
     this.held.delete(action);
+    this.blocked.delete(action);
   }
 }

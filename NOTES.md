@@ -13,6 +13,16 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - **Speed ramp** is capped at `MIN_FALL_INTERVAL_MS`.
 - **Controls** (trying out): ← → move, ↑ rotate clockwise, ↓ or Space = soft drop (held), Z/X rotate counter-clockwise/clockwise. No hard drop. Previous try was ↑/↓ both rotating with Space as drop.
 
+## Visuals
+- Pixel-art style: 16×16 sprites defined as text grids in `src/render/sprites.ts`, drawn on a small canvas and scaled up with pixelated rendering. Germs: red Spike (horns), yellow Buzz (antenna), blue Peep (three eyes).
+- Font: Press Start 2P (SIL Open Font License), loaded from Google Fonts. Falls back to monospace offline.
+- Retro page styling: checker background, CRT scanlines, square pixel buttons.
+
+## Audio
+- Sound effects with **ZzFX** and music with **ZzFXM**, both MIT, vendored in `src/audio/` (no npm packages, no audio files). Sound definitions and the test tune are in `src/audio/sounds.ts`.
+- Background music added (the spec originally said none). The current tune is a placeholder; a BeepBox export can replace it later.
+- Mute (M key or button) and Music on/off buttons on every screen; both remembered in the browser.
+
 ## Online design decisions
 - **No local 2-player.** Garbage is tested in single-player with the dev-only `9` key (sends yourself 2–4 pieces).
 - **Level and speed are per player**, like the original. Same seed for both. Germ layouts match only if the levels match; the capsule sequence always matches.
