@@ -132,9 +132,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
 button.on#ready-btn { background: #2f8f4e; color: var(--text); }
 #play:not(.vs) .vs-only { display: none !important; }
 #play:not(.vs):not(.online) .match-only { display: none !important; }
-#play:not(.online) .online-play-only { display: none !important; }
-.opp-note strong { font-size: 14px !important; }
-.small-note { font-size: 8px; color: var(--muted); line-height: 1.8; max-width: 160px; }
+#pips-opp-name { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #menu.cpu .panel { width: min(600px, calc(100% - 16px)); }
 
 .seg-mode button { font-size: 12px; padding: 14px 10px 12px; }
@@ -207,7 +205,13 @@ canvas { display: block; image-rendering: pixelated; }
 
 .pips-row { display: flex; flex-direction: row !important; align-items: center; gap: 10px; font-size: 10px; }
 .pips { display: inline-flex; gap: 6px; }
-.pip { width: 12px; height: 12px; background: #262b62; box-shadow: 0 0 0 2px var(--edge); }
+/* Round wins as stars: dim when not yet won */
+.pip {
+  width: 16px;
+  height: 16px;
+  background: #343a7a;
+  clip-path: polygon(50% 0%, 62% 36%, 100% 38%, 70% 60%, 80% 98%, 50% 76%, 20% 98%, 30% 60%, 0% 38%, 38% 36%);
+}
 .pip.on { background: var(--yellow); }
 .fast-flag { font-size: 9px; color: var(--yellow); line-height: 1.8; }
 

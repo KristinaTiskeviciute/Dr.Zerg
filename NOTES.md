@@ -38,7 +38,15 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - Player id is per browser tab (sessionStorage), so two tabs = two players, and a reload keeps your seat.
 - Disconnects: seat kept for `RECONNECT_GRACE_S`, auto-reconnect with backoff, then the seat is freed.
 - Lobby: name, your level/speed (per player), Fast garbage (host only, locked once started), ready flags; host starts when both are ready. Server sends seed + relative 3 s countdown.
-- Not yet (milestone 5): opponent board snapshots, garbage over the network, results/best of 3, shared pause, disconnect handling mid-match.
+
+## Online versus (milestone 5)
+- Board snapshots (`src/net/snapshot.ts`): 1 char per cell + falling capsule + next + popping cells + queued garbage + germ count, under 400 bytes; sent at `BOARD_SNAPSHOT_HZ` when changed and at least every 500 ms (doubles as heartbeat). Server checks the shape and relays.
+- Garbage: your `garbageOut` → `garbage` message → opponent's queue (warning sound + shoulder preview).
+- Results: each client reports `cleared` / `toppedOut` / `forfeit`; the server's first report decides the round. First to 3 round wins (shown as stars) takes the match, like the original — changed from the spec's "best of 3"; next round starts automatically after `ROUND_BREAK_MS` (4 s) with a new seed; match over → room back to the lobby.
+- Shared pause: P sends `pause`; both boards freeze and hide; resume = 3 s countdown for both.
+- No word from the opponent for 2 s → both pause ("Connection problem…"). Your own connection down → "Reconnecting…".
+- Opponent disconnects → "Opponent disconnected (15 s)"; back in time → 3 s countdown; not back → they lose the match and their seat is freed.
+- Rejoining a room mid-round with no game in the tab (reload) → that round is forfeited; you play from the next round.
 
 ## Visuals
 - Pixel-art style: 16×16 sprites defined as text grids in `src/render/sprites.ts`, drawn on a small canvas and scaled up with pixelated rendering. Germs: red Spike (horns), yellow Buzz (antenna), blue Peep (three eyes).

@@ -45,7 +45,7 @@ export const MAX_GARBAGE_PER_ATTACK = 4;
 export const MIN_CLEARS_FOR_GARBAGE = 2;
 
 // --- Versus ---
-export const ROUNDS_TO_WIN = 2; // best of 3
+export const ROUNDS_TO_WIN = 3; // first to 3 round wins takes the match, like the original
 export const OPPONENT_BOARD_SCALE = 0.55; // opponent's bottle size relative to yours
 
 // --- CPU opponent ---

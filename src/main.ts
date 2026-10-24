@@ -1,5 +1,7 @@
 import { audio } from './audio/audio';
-import { CPU_SKILLS, MAX_FRAME_MS, MAX_LEVEL, OPPONENT_BOARD_SCALE, ROUNDS_TO_WIN, SIM_STEP_MS } from './config';
+import {
+  BOARD_SNAPSHOT_HZ, CPU_SKILLS, MAX_FRAME_MS, MAX_LEVEL, OPPONENT_BOARD_SCALE, ROUNDS_TO_WIN, SIM_STEP_MS,
+} from './config';
 import { CpuController } from './core/ai';
 import { Game, GameEvent } from './core/game';
 import { Match } from './core/match';
@@ -9,9 +11,10 @@ import { KeyboardInput } from './input/keyboard';
 import { boardPixelSize, drawBoard, drawGerm } from './render/draw';
 import { BoardEffects } from './render/effects';
 import { gameView } from './render/view';
-import { makeRoomCode, normalizeRoomCode, StartInfo } from './net/protocol';
+import { BoardSnapshot, makeRoomCode, normalizeRoomCode, RoundResult, StartInfo } from './net/protocol';
+import { encodeSnapshot, snapshotView } from './net/snapshot';
 import { $, loadSettings, saveSettings, Settings, SKILL_LABEL, SPEED_LABEL } from './ui/dom';
-import { OnlineRoom } from './ui/lobby';
+import { MatchMessage, OnlineRoom } from './ui/lobby';
 
 const canvas = $<HTMLCanvasElement>('#board');
 const ctx = canvas.getContext('2d')!;
@@ -26,8 +29,36 @@ const oppFx = new BoardEffects();
 type Session =
   | { kind: 'solo'; game: Game }
   | { kind: 'cpu'; match: Match; cpu: CpuController }
-  // Online: your own board on the room's shared seed. startAt = end of the countdown.
-  | { kind: 'online'; game: Game; startAt: number; counting: boolean; opponent: string };
+  | OnlineSession;
+
+/** An online round: your board runs here; the opponent's arrives as snapshots. */
+interface OnlineSession {
+  kind: 'online';
+  game: Game;
+  info: StartInfo;
+  opponentId: string;
+  opponentName: string;
+  /** Play (re)starts at this time: after the start countdown, a pause or a reconnect. */
+  startAt: number;
+  /** Shared pause: who paused (null if not paused). */
+  pausedBy: string | null;
+  /** Opponent's connection dropped: they have until `until` to come back. */
+  away: { name: string; until: number } | null;
+  /** Latest snapshot of the opponent's board and when it arrived. */
+  opp: { snap: BoardSnapshot | null; at: number };
+  /** The round's result from the server, once decided. */
+  result: RoundResult | null;
+  resultSent: boolean;
+  lastSent: { json: string; at: number };
+}
+
+/**
+ * No word from the opponent for this long: pause both boards ("Connection problem…").
+ * Background tabs only get timers about once a second, so keep this well above that.
+ */
+const STALE_MS = 3500;
+/** Send your board at least this often, even if nothing changed (doubles as a heartbeat). */
+const SNAPSHOT_KEEPALIVE_MS = 500;
 
 let settings: Settings = loadSettings();
 let session: Session | null = null;
@@ -47,14 +78,28 @@ function running(): boolean {
   switch (session.kind) {
     case 'solo': return !session.game.isOver;
     case 'cpu': return session.match.state === 'playing';
-    case 'online': return !session.game.isOver && performance.now() >= session.startAt;
+    case 'online': return onlineHold(session, performance.now()) === null;
   }
+}
+
+/** Why an online round isn't advancing right now, or null if it is. */
+function onlineHold(s: OnlineSession, now: number): 'result' | 'over' | 'reconnecting' | 'away' | 'paused' | 'stale' | 'countdown' | null {
+  if (s.result) return 'result';
+  if (s.game.isOver) return 'over';
+  if (!room.connected) return 'reconnecting';
+  if (s.away) return 'away';
+  if (s.pausedBy) return 'paused';
+  if (now - s.opp.at > STALE_MS) return 'stale';
+  if (now < s.startAt) return 'countdown';
+  return null;
 }
 
 // --- Online room (lobby screen + connection) ---
 
 const room = new OnlineRoom(settings, {
   onStart: startOnline,
+  onMatchMessage: onMatchMessage,
+  inMatch: () => session?.kind === 'online',
   onLeave: error => {
     showMenu();
     $('#menu-error').textContent = error ?? '';
@@ -167,7 +212,7 @@ function enterPlay(): void {
   $('#menu').classList.add('hidden');
   $('#lobby').classList.add('hidden');
   $('#play').classList.remove('hidden');
-  $('#play').classList.toggle('vs', session?.kind === 'cpu');
+  $('#play').classList.toggle('vs', session?.kind === 'cpu' || session?.kind === 'online');
   $('#play').classList.toggle('online', session?.kind === 'online');
   const me = you();
   $('#hud-level').textContent = String(me?.level ?? settings.level);
@@ -192,27 +237,177 @@ function startCpuMatch(): void {
     fastGarbage: settings.fastGarbage,
   });
   session = { kind: 'cpu', match, cpu: new CpuController(CPU_SKILLS[settings.cpuSkill], randomSeed()) };
-  $('#opp-label').textContent = `CPU · ${SKILL_LABEL[settings.cpuSkill]} · Lv ${settings.cpuLevel}`;
+  setOpponentLabels('CPU', `CPU · ${SKILL_LABEL[settings.cpuSkill]} · Lv ${settings.cpuLevel}`);
   $('#hud-fast').classList.toggle('hidden', !settings.fastGarbage);
   enterPlay();
 }
 
-/** The host pressed Start: play your own board on the shared seed after the countdown. */
+function setOpponentLabels(name: string, boardLabel: string): void {
+  $('#pips-opp-name').textContent = name;
+  $('#hud-opp-germs-label').textContent = `${name} germs`;
+  $('#opp-label').textContent = boardLabel;
+}
+
+/** A round starts (the first from the lobby, later ones automatically): your board on the shared seed. */
 function startOnline(info: StartInfo): void {
   const me = info.players.find(p => p.id === room.me);
-  if (!me) return;
-  const opponent = info.players.find(p => p.id !== room.me)?.name ?? 'Opponent';
+  const opp = info.players.find(p => p.id !== room.me);
+  if (!me || !opp) return;
+  const now = performance.now();
   session = {
     kind: 'online',
     game: new Game({ level: me.level, speed: me.speed, seed: info.seed, fastGarbage: info.settings.fastGarbage, playerSalt: me.id }),
-    startAt: performance.now() + info.startInMs,
-    counting: true,
-    opponent,
+    info,
+    opponentId: opp.id,
+    opponentName: opp.name,
+    startAt: now + info.startInMs,
+    pausedBy: null,
+    away: null,
+    opp: { snap: null, at: now },
+    result: null,
+    resultSent: false,
+    lastSent: { json: '', at: 0 },
   };
+  setOpponentLabels(opp.name, `${opp.name} · Lv ${opp.level} · ${SPEED_LABEL[opp.speed]}`);
   $('#hud-fast').classList.toggle('hidden', !info.settings.fastGarbage);
-  $('#opp-name').textContent = opponent;
+  overlayKey = '';
   enterPlay();
-  showOverlay(String(Math.ceil(info.startInMs / 1000)), `vs ${opponent}`, []);
+}
+
+function onMatchMessage(msg: MatchMessage): void {
+  if (session?.kind !== 'online') return;
+  const s = session;
+  const now = performance.now();
+  switch (msg.t) {
+    case 'board':
+      if (msg.from === s.opponentId) s.opp = { snap: msg.snap, at: now };
+      break;
+    case 'garbage':
+      if (msg.from === s.opponentId && !s.result) {
+        s.game.receiveGarbage(msg.colors);
+        youFx.markIncoming();
+        audio.play('warning', 0, 0);
+      }
+      break;
+    case 'pause':
+      s.pausedBy = msg.paused ? msg.by : null;
+      if (!msg.paused) s.startAt = now + msg.resumeInMs;
+      audio.setMusicPaused(msg.paused);
+      keyboard.reset();
+      break;
+    case 'away':
+      if (msg.id === s.opponentId) s.away = { name: msg.name, until: now + msg.graceMs };
+      break;
+    case 'back':
+      // Either the opponent came back, or you did after a blip: resume after a countdown.
+      if (msg.id === s.opponentId) s.away = null;
+      s.startAt = now + msg.resumeInMs;
+      s.opp.at = now;
+      keyboard.reset();
+      break;
+    case 'round':
+      onOnlineRound(s, msg);
+      break;
+  }
+}
+
+function onOnlineRound(s: OnlineSession, r: RoundResult): void {
+  s.result = r;
+  audio.stopMusic();
+  if (r.winner === room.me) audio.jingle('win');
+  else if (r.winner) audio.jingle('lose');
+
+  const who = (id: string) => (id === room.me ? 'You' : s.opponentName);
+  const why =
+    r.reason === 'cleared' ? `${who(r.by)} cleared ${r.by === room.me ? 'your' : 'their'} bottle` :
+    r.reason === 'toppedOut' ? `${who(r.by)} topped out` :
+    r.reason === 'forfeit' ? `${who(r.by)} left the round` :
+    `${who(r.by)} disconnected`;
+  const score = `You ${r.wins[room.me] ?? 0} – ${r.wins[s.opponentId] ?? 0} ${s.opponentName}`;
+  const iWon = r.winner === room.me;
+  overlayKey = 'result';
+  if (r.matchOver) {
+    showOverlay(iWon ? 'You win the match!' : `${s.opponentName} wins the match`, `${why}. ${score}`, [
+      ['Back to lobby', leaveOnlineMatch],
+      ['Leave room', () => room.leave()],
+    ]);
+  } else {
+    const round = s.info.round;
+    showOverlay(iWon ? `You take round ${round}` : `${s.opponentName} takes round ${round}`, `${why}. ${score}. Next round coming up…`, []);
+  }
+}
+
+function leaveOnlineMatch(): void {
+  session = null;
+  keyboard.enabled = false;
+  audio.stopMusic();
+  room.backToLobby();
+}
+
+/** Your board ended on its own (cleared or topped out): tell the room. The server decides the round. */
+function onOnlineOver(game: Game): void {
+  if (session?.kind !== 'online' || session.resultSent) return;
+  session.resultSent = true;
+  room.send({ t: 'result', outcome: game.phase === 'won' ? 'cleared' : 'toppedOut' });
+}
+
+/** Send your board if it changed (at most BOARD_SNAPSHOT_HZ), or anyway every so often as a heartbeat. */
+function sendBoard(s: OnlineSession, now: number): void {
+  if (now - s.lastSent.at < 1000 / BOARD_SNAPSHOT_HZ) return;
+  const json = JSON.stringify(encodeSnapshot(s.game));
+  if (json !== s.lastSent.json || now - s.lastSent.at >= SNAPSHOT_KEEPALIVE_MS) {
+    room.send({ t: 'board', snap: JSON.parse(json) });
+    s.lastSent = { json, at: now };
+  }
+}
+
+// Browsers stop requestAnimationFrame in hidden tabs, but timers keep running (about once a
+// second). This keeps the heartbeat going so a backgrounded tab doesn't look disconnected.
+setInterval(() => {
+  if (session?.kind === 'online') sendBoard(session, performance.now());
+}, SNAPSHOT_KEEPALIVE_MS);
+
+/** Once per frame during an online round: send your board, and show the right overlay. */
+function updateOnline(s: OnlineSession, now: number): void {
+  sendBoard(s, now);
+
+  const hold = onlineHold(s, now);
+  if (hold === 'result') return; // result overlay is already up
+  const secs = (t: number) => String(Math.max(0, Math.ceil((t - now) / 1000)));
+  switch (hold) {
+    case 'over':
+      return setOverlayState('over', s.game.phase === 'won' ? 'Bottle clean!' : 'Topped out', 'Waiting for the result…', []);
+    case 'reconnecting':
+      return setOverlayState('reconnecting', 'Reconnecting…', 'Your connection dropped. Hang on…', []);
+    case 'away':
+      return setOverlayState('away', 'Opponent disconnected', `${s.away!.name} has ${secs(s.away!.until)} s to come back`, []);
+    case 'paused':
+      return setOverlayState('paused', 'Paused', `Paused by ${s.pausedBy}. Either of you can resume.`, [
+        ['Resume', () => room.send({ t: 'pause', paused: false })],
+        ['Leave room', () => room.leave()],
+      ]);
+    case 'stale':
+      return setOverlayState('stale', 'Connection problem…', `Waiting to hear from ${s.opponentName}`, []);
+    case 'countdown':
+      return setOverlayState('countdown', secs(s.startAt), s.info.round > 1 ? `Round ${s.info.round}` : `vs ${s.opponentName}`, []);
+    default:
+      if (overlayKey) {
+        overlayKey = '';
+        hideOverlay();
+      }
+  }
+}
+
+/** Show an overlay unless that kind is already showing; same kind just updates its text. */
+let overlayKey = '';
+function setOverlayState(key: string, title: string, sub: string, buttons: [string, () => void][]): void {
+  if (overlayKey === key) {
+    setText('#overlay-title', title);
+    setText('#overlay-sub', sub);
+    return;
+  }
+  overlayKey = key;
+  showOverlay(title, sub, buttons);
 }
 
 function nextRound(): void {
@@ -231,7 +426,7 @@ function nextRound(): void {
 /** Scale your board to fill the window height, leaving room for the HUD (and the CPU's board). */
 function sizeCanvases(): void {
   const { width, height } = boardPixelSize(8, 16);
-  const vs = session?.kind === 'cpu';
+  const vs = session?.kind === 'cpu' || session?.kind === 'online';
   const narrow = window.innerWidth <= 520;
   const availW = window.innerWidth - (narrow ? 32 : 260) - (vs ? 40 : 0);
   const availH = window.innerHeight - (narrow ? 120 : 32);
@@ -315,23 +510,13 @@ function onRoundOver(match: Match): void {
   }
 }
 
-function onOnlineOver(game: Game): void {
-  audio.stopMusic();
-  audio.jingle(game.phase === 'won' ? 'win' : 'lose');
-  const backToLobby = () => {
-    session = null;
-    keyboard.enabled = false;
-    room.backToLobby();
-  };
-  showOverlay(
-    game.phase === 'won' ? 'Bottle clean!' : 'Topped out',
-    'Live versus (their board, garbage, results) comes in the next step.',
-    [['Back to lobby', backToLobby]],
-  );
-}
-
 function togglePause(): void {
-  if (session?.kind === 'online') return; // shared pause comes with live versus
+  if (session?.kind === 'online') {
+    // Shared pause: the server tells both players; resuming has a countdown.
+    const hold = onlineHold(session, performance.now());
+    if (hold === null || hold === 'countdown' || hold === 'paused') room.send({ t: 'pause', paused: !session.pausedBy });
+    return;
+  }
   if (!running() && !paused) return;
   paused = !paused;
   audio.setMusicPaused(paused);
@@ -423,6 +608,14 @@ function step(): void {
     const events = g.drainEvents();
     handleYourEvents(events);
     youFx.onEvents(events);
+    if (session.kind === 'online') {
+      for (const e of events) {
+        if (e.type === 'garbageOut') {
+          room.send({ t: 'garbage', colors: e.colors });
+          oppFx.markIncoming();
+        }
+      }
+    }
     if (g.isOver) (session.kind === 'solo' ? onSoloOver : onOnlineOver)(g);
   } else {
     const { match, cpu } = session;
@@ -452,16 +645,7 @@ function frame(now: number): void {
   const dt = Math.min(now - lastTime, MAX_FRAME_MS);
   lastTime = now;
 
-  // Online countdown: 3, 2, 1, then go.
-  if (session?.kind === 'online' && session.counting) {
-    const left = session.startAt - now;
-    if (left > 0) setText('#overlay-title', String(Math.ceil(left / 1000)));
-    else {
-      session.counting = false;
-      acc = 0;
-      hideOverlay();
-    }
-  }
+  if (session?.kind === 'online') updateOnline(session, now);
 
   if (running()) {
     acc += dt;
@@ -478,10 +662,21 @@ function frame(now: number): void {
       youFx.update(dt);
       oppFx.update(dt);
     }
+    // Boards are hidden while paused, so nobody can plan ahead during a pause.
+    const hidden = paused || (session.kind === 'online' && session.pausedBy !== null);
     applyShake(canvas, youFx, now);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!paused) drawBoard(ctx, gameView(me, youFx), 0, 0, now);
+    if (!hidden) drawBoard(ctx, gameView(me, youFx), 0, 0, now);
     setText('#hud-germs', String(me.germsLeft));
+    if (session.kind === 'online') {
+      const snap = session.opp.snap;
+      oppCtx.clearRect(0, 0, oppCanvas.width, oppCanvas.height);
+      if (snap && !hidden) drawBoard(oppCtx, snapshotView(snap, oppFx.incomingFresh), 0, 0, now);
+      setText('#hud-opp-germs', snap ? String(snap.g) : '–');
+      const wins = session.result?.wins ?? session.info.wins;
+      renderPips('#pips-you', wins[room.me] ?? 0);
+      renderPips('#pips-opp', wins[session.opponentId] ?? 0);
+    }
     if (session.kind === 'cpu') {
       const opp = session.match.games[1];
       applyShake(oppCanvas, oppFx, now);

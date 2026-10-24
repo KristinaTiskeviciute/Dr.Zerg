@@ -9,7 +9,9 @@
     "binding": "ASSETS",
     // /r/ABCD and other unknown paths serve index.html; the client reads the room code from the URL.
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/parties/*"]
+    // The Worker sees every request: relay traffic goes to the room, the rest to the game files
+    // (or, in local dev, a redirect to Vite).
+    "run_worker_first": true
   },
   "durable_objects": {
     "bindings": [{ "name": "Room", "class_name": "Room" }]

@@ -1,13 +1,19 @@
 import { Speed } from '../config';
 import { ConnectionStatus, playerId, RoomConnection } from '../net/client';
-import { LobbyState, MAX_PLAYERS, ServerMessage, StartInfo } from '../net/protocol';
+import { ClientMessage, LobbyState, MAX_PLAYERS, ServerMessage, StartInfo } from '../net/protocol';
 import { $, saveSettings, Settings, SPEED_LABEL } from './dom';
 
 const SLOW_CONNECT_MS = 5000;
 
+/** Messages that matter during a match (boards, garbage, results, pause, disconnects). */
+export type MatchMessage = Extract<ServerMessage, { t: 'board' | 'garbage' | 'round' | 'pause' | 'away' | 'back' }>;
+
 export interface RoomCallbacks {
-  /** The host started: switch to the game. */
+  /** A round starts (first round from the lobby, later rounds automatically). */
   onStart(info: StartInfo): void;
+  onMatchMessage(msg: MatchMessage): void;
+  /** True while you're actually playing a round on this tab. */
+  inMatch(): boolean;
   /** You left the room (or were turned away): back to the menu. */
   onLeave(error?: string): void;
 }
@@ -24,6 +30,8 @@ export class OnlineRoom {
   private setupSent = false;
   /** When the current attempt to connect started (to notice a server that never answers). */
   private connectingSince = 0;
+  /** Already gave up the round in progress (rejoined mid-round without a game). */
+  private forfeited = false;
 
   constructor(private readonly settings: Settings, private readonly cb: RoomCallbacks) {
     this.bindUi();
@@ -34,6 +42,14 @@ export class OnlineRoom {
 
   get code(): string | null {
     return this.conn?.code ?? null;
+  }
+
+  get connected(): boolean {
+    return this.status === 'open';
+  }
+
+  send(msg: ClientMessage): void {
+    this.conn?.send(msg);
   }
 
   enter(code: string): void {
@@ -90,16 +106,33 @@ export class OnlineRoom {
         this.lobby = msg.lobby;
         $('#lobby-error').textContent = '';
         // Tell the room our level/speed once we have a seat (and after every reconnect).
-        if (!this.setupSent && this.mine()) {
+        if (!this.setupSent && this.mine() && msg.lobby.phase === 'lobby') {
           this.setupSent = true;
           this.sendSetup();
         }
+        // Back in a room whose round is in progress, but this tab has no game (e.g. after a
+        // reload): give up this round so the match can go on; you'll play the next one.
+        if (msg.lobby.phase === 'playing' && this.mine() && !this.cb.inMatch() && !this.forfeited) {
+          this.forfeited = true;
+          this.send({ t: 'result', outcome: 'forfeit' });
+        }
+        if (msg.lobby.phase === 'lobby') this.forfeited = false;
         this.render();
         break;
       case 'start':
+        this.forfeited = false;
         this.cb.onStart(msg);
         break;
+      case 'board':
+      case 'garbage':
+      case 'round':
+      case 'pause':
+      case 'away':
+      case 'back':
+        this.cb.onMatchMessage(msg);
+        break;
       case 'error':
+        console.warn(`[room ${this.code}] server says: ${msg.code}: ${msg.message}`);
         if (msg.code === 'full' || msg.code === 'inProgress') this.leave(msg.message);
         else $('#lobby-error').textContent = msg.message;
         break;
@@ -232,6 +265,7 @@ export class OnlineRoom {
       this.status === 'connecting' ? 'Connecting…' :
       this.status === 'reconnecting' ? 'Connection lost, reconnecting…' :
       this.status === 'closed' ? 'Disconnected.' :
+      lobby?.phase === 'playing' ? "A match is in progress. You'll join in at the next round." :
       !full ? 'Share the link or the room code with a friend.' :
       !allReady ? 'Waiting for everyone to be ready.' :
       isHost ? 'Everyone is ready. Press Start!' : 'Everyone is ready. Waiting for the host to start.';

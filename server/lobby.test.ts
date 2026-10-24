@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ROUNDS_TO_WIN } from '../src/config';
 import { makeRoomCode, normalizeRoomCode, parseClientMessage } from '../src/net/protocol';
 import { Lobby } from './lobby';
 
@@ -73,9 +74,18 @@ describe('Lobby', () => {
     l.start('alice-1', 1);
     expect(l.setSettings('alice-1', true).ok).toBe(false);
     expect(l.setup('bob-123', 9, 'high').ok).toBe(false);
+    const r = l.join('carol-1', 'Carol');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('inProgress');
+  });
+
+  it('freeing a seat mid-match ends the match', () => {
+    const l = twoReady();
+    l.start('alice-1', 1);
     l.disconnect('bob-123');
     l.remove('bob-123');
-    expect(l.join('carol-1', 'Carol').ok).toBe(false);
+    expect(l.state.phase).toBe('lobby');
+    expect(l.inMatch).toBe(false);
   });
 
   it('back to lobby keeps settings and clears ready flags', () => {
@@ -92,6 +102,89 @@ describe('Lobby', () => {
     const l = twoReady();
     l.disconnect('bob-123');
     expect(l.canStart).toBe(false);
+  });
+});
+
+describe('match', () => {
+  function playing(): Lobby {
+    const l = twoReady();
+    l.start('alice-1', 1);
+    return l;
+  }
+
+  it('clearing your bottle wins the round; topping out loses it', () => {
+    const l = playing();
+    const r1 = l.result('alice-1', 'cleared')!;
+    expect(r1.winner).toBe('alice-1');
+    expect(r1.wins).toEqual({ 'alice-1': 1, 'bob-123': 0 });
+    expect(r1.matchOver).toBe(false);
+    expect(r1.nextInMs).toBeGreaterThan(0);
+
+    l.nextRound(2);
+    const r2 = l.result('alice-1', 'toppedOut')!;
+    expect(r2.winner).toBe('bob-123');
+  });
+
+  it('the first result decides the round; a late second one is ignored', () => {
+    const l = playing();
+    expect(l.result('bob-123', 'cleared')!.winner).toBe('bob-123');
+    expect(l.result('alice-1', 'cleared')).toBeNull();
+  });
+
+  it('a forfeit (reload mid-round) gives the round to the other player', () => {
+    const l = playing();
+    expect(l.result('bob-123', 'forfeit')!.winner).toBe('alice-1');
+  });
+
+  it('next round only after a result, with a new round number and the score so far', () => {
+    const l = playing();
+    expect(l.nextRound(5)).toBeNull(); // round still going
+    l.result('alice-1', 'cleared');
+    const next = l.nextRound(5)!;
+    expect(next.round).toBe(2);
+    expect(next.seed).toBe(5);
+    expect(next.wins['alice-1']).toBe(1);
+    expect(l.nextRound(6)).toBeNull(); // already started
+  });
+
+  it('does not start the next round while someone is disconnected', () => {
+    const l = playing();
+    l.result('alice-1', 'cleared');
+    l.disconnect('bob-123');
+    expect(l.nextRound(5)).toBeNull();
+    l.join('bob-123', 'Bob');
+    expect(l.nextRound(5)).not.toBeNull();
+  });
+
+  it(`${ROUNDS_TO_WIN} round wins ends the match (2–0 keeps going) and returns the room to the lobby`, () => {
+    const l = playing();
+    for (let w = 1; w < ROUNDS_TO_WIN; w++) {
+      const mid = l.result('alice-1', 'cleared')!;
+      expect(mid.matchOver).toBe(false);
+      l.nextRound(w + 1);
+    }
+    const r = l.result('bob-123', 'toppedOut')!;
+    expect(r.wins['alice-1']).toBe(ROUNDS_TO_WIN);
+    expect(r.matchOver).toBe(true);
+    expect(r.nextInMs).toBeNull();
+    expect(l.state.phase).toBe('lobby');
+    expect(l.state.players.every(p => !p.ready)).toBe(true);
+    expect(l.state.settings).toEqual({ fastGarbage: false });
+  });
+
+  it('a player who never comes back loses the match', () => {
+    const l = playing();
+    l.disconnect('bob-123');
+    const r = l.abandon('bob-123')!;
+    expect(r.winner).toBe('alice-1');
+    expect(r.reason).toBe('disconnect');
+    expect(r.matchOver).toBe(true);
+  });
+
+  it('a mid-match disconnect keeps the ready flag (it only resets in the lobby)', () => {
+    const l = playing();
+    l.disconnect('bob-123');
+    expect(l.state.players[1].ready).toBe(true);
   });
 });
 

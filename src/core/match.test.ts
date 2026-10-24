@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CPU_SKILLS } from '../config';
+import { CPU_SKILLS, ROUNDS_TO_WIN } from '../config';
 import { CpuController } from './ai';
 import { Board } from './board';
 import { GameEvent, StepInput } from './game';
@@ -66,19 +66,16 @@ describe('Match', () => {
     expect(m.games[1].pendingGarbage).toBe(2);
   });
 
-  it('counts round wins and ends the match at 2', () => {
+  it(`counts round wins, keeps going at 2–0, and ends the match at ${ROUNDS_TO_WIN} wins`, () => {
     const m = new Match({ players, seed: 3, fastGarbage: false, setupBoard: (b, i) => { if (i === 0) nearWin(b); else b.set(15, 0, { kind: 'germ', color: B }); } });
-    forceRedVertical(m, 0);
-    run(m, [{ softDrop: true }, {}]);
-    expect(m.roundWinner).toBe(0);
-    expect(m.wins).toEqual([1, 0]);
-    expect(m.state).toBe('roundOver');
-
-    m.nextRound();
-    forceRedVertical(m, 0);
-    run(m, [{ softDrop: true }, {}]);
-    expect(m.wins).toEqual([2, 0]);
-    expect(m.state).toBe('matchOver');
+    for (let w = 1; w <= ROUNDS_TO_WIN; w++) {
+      if (w > 1) m.nextRound();
+      forceRedVertical(m, 0);
+      run(m, [{ softDrop: true }, {}]);
+      expect(m.roundWinner).toBe(0);
+      expect(m.wins).toEqual([w, 0]);
+      expect(m.state).toBe(w < ROUNDS_TO_WIN ? 'roundOver' : 'matchOver');
+    }
     expect(m.matchWinner).toBe(0);
   });
 
@@ -94,10 +91,10 @@ describe('Match', () => {
     expect(m.roundWinner).toBe(0);
   });
 
-  it('two CPUs can play a whole best-of-3 match, with garbage flying both ways', () => {
+  it('two CPUs can play a whole match, with garbage flying both ways', () => {
     const m = new Match({ players: [{ level: 4, speed: 'high' }, { level: 4, speed: 'high' }], seed: 11, fastGarbage: true });
     let garbage = 0;
-    for (let round = 0; round < 3 && m.state !== 'matchOver'; round++) {
+    for (let round = 0; round < ROUNDS_TO_WIN * 2 - 1 && m.state !== 'matchOver'; round++) {
       if (m.state === 'roundOver') m.nextRound();
       const cpus = [new CpuController(CPU_SKILLS.hard, 1 + round), new CpuController(CPU_SKILLS.normal, 50 + round)];
       for (let i = 0; i < 20 * 60 * 60 && m.state === 'playing'; i++) {
@@ -106,9 +103,9 @@ describe('Match', () => {
       }
     }
     expect(m.state).toBe('matchOver');
-    expect(m.wins[0] + m.wins[1]).toBeGreaterThanOrEqual(2);
+    expect(Math.max(...m.wins)).toBe(ROUNDS_TO_WIN);
     expect(garbage).toBeGreaterThan(0);
-  }, 60_000);
+  }, 120_000);
 
   it('stops both boards once the round is decided', () => {
     const m = new Match({ players, seed: 3, fastGarbage: false, setupBoard: (b, i) => { if (i === 0) nearWin(b); else b.set(15, 0, { kind: 'germ', color: B }); } });

@@ -15,7 +15,8 @@ npm run build        # type-check + production build into dist/
 ```
 
 Solo and Vs CPU only need `npm run dev`. For online play, run both; Vite forwards
-`/parties/*` to the relay. Each browser tab counts as a separate player, so you can
+`/parties/*` to the relay. Always play on port 5173; opening 8787 in a browser just
+redirects there. Each browser tab counts as a separate player, so you can
 try a room on your own with two tabs: Online → Create room in one, open the link in the other.
 
 After changing `wrangler.jsonc`, regenerate the Worker types with `npm run types:worker`.
