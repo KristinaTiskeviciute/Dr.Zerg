@@ -9,9 +9,9 @@ export type Bindings = Record<Action, string[]>;
 export const DEFAULT_BINDINGS: Bindings = {
   left: ['ArrowLeft'],
   right: ['ArrowRight'],
-  softDrop: ['Space'],
+  softDrop: ['ArrowDown', 'Space'],
   rotateCW: ['ArrowUp', 'KeyX'],
-  rotateCCW: ['ArrowDown', 'KeyZ'],
+  rotateCCW: ['KeyZ'],
 };
 
 /**
