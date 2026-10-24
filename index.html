@@ -21,16 +21,55 @@
         <h1 class="logo">Dr.<span>Zerg</span></h1>
         <p class="tagline">Line up four. Squash the germs.</p>
         <div class="panel">
-          <div class="field">
-            <label for="level">Level <output id="level-out">5</output></label>
-            <input type="range" id="level" min="0" max="20" value="5" />
+          <div class="seg seg-mode" id="mode">
+            <button type="button" data-value="solo">Solo</button>
+            <button type="button" data-value="cpu">Vs CPU</button>
           </div>
-          <div class="field">
-            <span class="label">Speed</span>
-            <div class="seg" id="speed">
-              <button type="button" data-speed="low">Low</button>
-              <button type="button" data-speed="med">Med</button>
-              <button type="button" data-speed="high">Hi</button>
+          <div class="panel-cols">
+            <div class="col">
+              <h3 class="cpu-only">You</h3>
+              <div class="field">
+                <label for="level">Level <output id="level-out">5</output></label>
+                <input type="range" id="level" min="0" max="20" value="5" />
+              </div>
+              <div class="field">
+                <span class="label">Speed</span>
+                <div class="seg" id="speed">
+                  <button type="button" data-value="low">Low</button>
+                  <button type="button" data-value="med">Med</button>
+                  <button type="button" data-value="high">Hi</button>
+                </div>
+              </div>
+            </div>
+            <div class="col cpu-only">
+              <h3>CPU</h3>
+              <div class="field">
+                <label for="cpu-level">Level <output id="cpu-level-out">5</output></label>
+                <input type="range" id="cpu-level" min="0" max="20" value="5" />
+              </div>
+              <div class="field">
+                <span class="label">Speed</span>
+                <div class="seg" id="cpu-speed">
+                  <button type="button" data-value="low">Low</button>
+                  <button type="button" data-value="med">Med</button>
+                  <button type="button" data-value="high">Hi</button>
+                </div>
+              </div>
+              <div class="field">
+                <span class="label">Skill</span>
+                <div class="seg" id="cpu-skill">
+                  <button type="button" data-value="easy">Easy</button>
+                  <button type="button" data-value="normal">Norm</button>
+                  <button type="button" data-value="hard">Hard</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="field cpu-only">
+            <span class="label">Fast garbage <small>(hold ↓ while garbage falls)</small></span>
+            <div class="seg" id="fast-garbage">
+              <button type="button" data-value="off">Off</button>
+              <button type="button" data-value="on">On</button>
             </div>
           </div>
           <button type="button" id="start" class="primary">Start</button>
@@ -50,13 +89,24 @@
           </div>
         </div>
         <aside class="hud">
+          <div class="vs-only">
+            <span class="label">Rounds</span>
+            <div class="pips-row"><span class="pips" id="pips-you"></span>You</div>
+            <div class="pips-row"><span class="pips" id="pips-opp"></span>CPU</div>
+          </div>
           <div><span class="label">Level</span><strong id="hud-level">0</strong></div>
           <div><span class="label">Speed</span><strong id="hud-speed">Med</strong></div>
           <div><span class="label">Germs</span><strong id="hud-germs">0</strong></div>
+          <div class="vs-only"><span class="label">CPU germs</span><strong id="hud-opp-germs">0</strong></div>
+          <div class="vs-only fast-flag" id="hud-fast">Fast garbage: ON</div>
           <p class="controls small">
             <kbd>←</kbd><kbd>→</kbd> move<br /><kbd>↑</kbd><kbd>X</kbd> rotate ↻<br /><kbd>Z</kbd> rotate ↺<br /><kbd>↓</kbd> drop<br /><kbd>P</kbd> pause
           </p>
         </aside>
+        <div class="opponent vs-only">
+          <span class="label" id="opp-label">CPU</span>
+          <canvas id="board-opp"></canvas>
+        </div>
       </section>
     </main>
     <script type="module" src="/src/main.ts"></script>

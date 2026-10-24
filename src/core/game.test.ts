@@ -129,6 +129,29 @@ describe('Game', () => {
     expect([...previews]).toEqual([JSON.stringify(g.active!.colors)]);
   });
 
+  it('a new capsule hangs at the top for a moment, but can be rotated and moved right away', () => {
+    const g = game(b => b.set(15, 7, { kind: 'germ', color: B }));
+    dropCapsule(g);
+    runUntilFalling(g);
+    expect(g.active!.row).toBe(0);
+    g.step(STEP, { rotateCW: true });
+    expect(g.active!.orientation).toBe(1); // rotated in the top row (top half up in the neck)
+    g.step(STEP, { left: true });
+    expect(g.active!.col).toBe(2);
+    for (let t = 0; t < 300; t += STEP) g.step(STEP);
+    expect(g.active!.row).toBe(0); // still hanging
+    for (let t = 0; t < 1000; t += STEP) g.step(STEP);
+    expect(g.active!.row).toBeGreaterThan(0); // gravity took over
+  });
+
+  it('soft drop skips the hang at the top', () => {
+    const g = game(b => b.set(15, 7, { kind: 'germ', color: B }));
+    dropCapsule(g);
+    runUntilFalling(g);
+    for (let t = 0; t < 100; t += STEP) g.step(STEP, { softDrop: true });
+    expect(g.active!.row).toBeGreaterThan(0);
+  });
+
   it('a single clear sends no garbage', () => {
     expect(garbageForChain([R])).toEqual([]);
     expect(garbageForChain([R, Y])).toEqual([R, Y]);

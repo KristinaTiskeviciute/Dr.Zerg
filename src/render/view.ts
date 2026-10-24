@@ -2,9 +2,10 @@ import { capsuleHalves } from '../core/capsule';
 import { Game } from '../core/game';
 import { Link } from '../core/types';
 import { BoardView } from './draw';
+import { BoardEffects } from './effects';
 
-/** Adapt a live Game to what the renderer draws. */
-export function gameView(game: Game): BoardView {
+/** Adapt a live Game (plus its cosmetic effects) to what the renderer draws. */
+export function gameView(game: Game, fx?: BoardEffects): BoardView {
   const active: BoardView['active'] = [];
   if (game.active && game.phase === 'falling') {
     const [a, b] = capsuleHalves(game.active);
@@ -22,5 +23,7 @@ export function gameView(game: Game): BoardView {
     next: game.isOver ? null : game.nextColors,
     clearing: game.clearingCells,
     clearProgress: game.clearProgress,
+    flashes: fx?.flashList,
+    incoming: { colors: game.queuedGarbage, fresh: fx?.incomingFresh ?? false },
   };
 }

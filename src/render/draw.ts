@@ -1,7 +1,7 @@
 import { CELL_PX, GERM_WIGGLE_MS } from '../config';
 import { Cell, Color, Link, Pos } from '../core/types';
 import { BOTTLE, INK, SHADES } from './palette';
-import { germFrame, Grid, pillGrid, shade } from './sprites';
+import { germDefeated, germFrame, Grid, pillGrid, shade } from './sprites';
 
 /**
  * Everything is drawn in "logical" pixels (CELL_PX = 16 per cell) on a small canvas,
@@ -19,10 +19,14 @@ export interface BoardView {
   next: readonly [Color, Color] | null;
   clearing: readonly Pos[];
   clearProgress: number;
+  /** Cells to flash white (just-locked capsule), with strength 0–1. */
+  flashes?: { pos: Pos; alpha: number }[];
+  /** Garbage queued to drop after the current capsule locks, and whether it just arrived (blink). */
+  incoming?: { colors: readonly Color[]; fresh: boolean };
 }
 
 const FRAME = 4;
-const NECK_ROWS = 2;
+const NECK_ROWS = 1; // one row: room to rotate at the top, and keeps the preview close to the spawn
 
 /** Pixel size of the full drawing (bottle + neck + preview) for a board. */
 export function boardPixelSize(cols: number, rows: number): { width: number; height: number } {
@@ -38,11 +42,15 @@ export function drawBoard(ctx: CanvasRenderingContext2D, view: BoardView, x: num
   const gridY = y + FRAME + (NECK_ROWS + 1) * s;
   drawBottle(ctx, gridX, gridY, view.cols, view.rows);
 
+  const previewX = gridX + (view.cols / 2 - 1) * s;
+  const previewY = gridY - (NECK_ROWS + 1) * s + 1;
   if (view.next) {
-    const nx = gridX + (view.cols / 2 - 1) * s;
-    const ny = gridY - (NECK_ROWS + 1) * s - 2;
-    drawCapsuleHalf(ctx, nx, ny, view.next[0], 'right');
-    drawCapsuleHalf(ctx, nx + s, ny, view.next[1], 'left');
+    drawCapsuleHalf(ctx, previewX, previewY, view.next[0], 'right');
+    drawCapsuleHalf(ctx, previewX + s, previewY, view.next[1], 'left');
+  }
+
+  if (view.incoming && view.incoming.colors.length > 0) {
+    drawIncoming(ctx, gridX, gridY - FRAME - 1, view.incoming.colors, view.incoming.fresh, timeMs);
   }
 
   const frame = Math.floor(timeMs / GERM_WIGGLE_MS) % 2;
@@ -69,6 +77,30 @@ export function drawBoard(ctx: CanvasRenderingContext2D, view: BoardView, x: num
   for (const h of view.active) {
     drawCapsuleHalf(ctx, gridX + h.pos.col * s, gridY + h.pos.row * s, h.color, h.link);
   }
+
+  for (const f of view.flashes ?? []) {
+    ctx.globalAlpha = f.alpha * 0.8;
+    ctx.fillStyle = INK.white;
+    ctx.fillRect(gridX + f.pos.col * s + 1, gridY + f.pos.row * s + 1, s - 2, s - 2);
+    ctx.globalAlpha = 1;
+  }
+}
+
+/**
+ * Incoming garbage: little single-half pills above the bottle's left shoulder, 3 per row
+ * (up to 9), bottom row first. (left, bottom) is where the stack starts. Blinks while fresh.
+ */
+function drawIncoming(
+  ctx: CanvasRenderingContext2D, left: number, bottom: number, colors: readonly Color[], fresh: boolean, timeMs: number,
+): void {
+  if (fresh && Math.floor(timeMs / 120) % 2 === 1) return;
+  const size = 8;
+  colors.slice(0, 9).forEach((color, i) => {
+    const x = left + 2 + (i % 3) * size;
+    const y = bottom - size * (1 + Math.floor(i / 3));
+    const img = paint(`pill:${color}:none`, shade(pillGrid('none'), true), colorsFor(color));
+    ctx.drawImage(img, x, y, size, size);
+  });
 }
 
 /** Pixel bottle with a neck. (gx, gy) is the top-left of the playfield grid. */
@@ -157,20 +189,32 @@ export function drawGerm(ctx: CanvasRenderingContext2D, px: number, py: number, 
   ctx.drawImage(img, Math.round(px), Math.round(py));
 }
 
-/** Clear effect: a white flash, then pixel sparks flying out from the cell. */
+const ALL_WHITE: Record<string, string> = Object.fromEntries([...'obldwWkm'].map(ch => [ch, INK.white]));
+
+/**
+ * Clear effect. Germs first show a defeated face, blinking white, then burst;
+ * capsule halves flash white and burst. The burst is pixel sparks flying outward.
+ */
 function drawPop(ctx: CanvasRenderingContext2D, px: number, py: number, cell: Cell, t: number, frame: number): void {
+  const hold = cell.kind === 'germ' ? 0.45 : 0.25;
+  if (t < hold) {
+    const blink = Math.floor(t * 16) % 2 === 1;
+    const grid = cell.kind === 'germ' ? germDefeated(cell.color) : pillGrid(cell.link);
+    const key = `${cell.kind}:${cell.color}:${cell.kind === 'pill' ? cell.link : 'x'}`;
+    const img = cell.kind === 'pill' || blink
+      ? paint(`white:${key}`, grid, ALL_WHITE)
+      : paint(`defeated:${key}`, shade(grid, false), colorsFor(cell.color));
+    // A tiny squash as it's hit
+    const squash = cell.kind === 'germ' && blink ? 1 : 0;
+    ctx.drawImage(img, Math.round(px), Math.round(py) + squash, 16, 16 - squash);
+    return;
+  }
   const sh = SHADES[cell.color];
   const cx = px + 8;
   const cy = py + 8;
-  if (t < 0.25) {
-    // Flash: the block in solid white, shrinking a little
-    const inset = Math.floor(t * 12);
-    ctx.fillStyle = INK.white;
-    ctx.fillRect(px + 2 + inset, py + 2 + inset, 12 - inset * 2, 12 - inset * 2);
-    return;
-  }
-  const d = Math.round(3 + (t - 0.25) * 14);
-  const size = t < 0.7 ? 2 : 1;
+  const u = (t - hold) / (1 - hold);
+  const d = Math.round(3 + u * 10);
+  const size = u < 0.6 ? 2 : 1;
   const colors = [INK.white, sh.light, sh.base];
   const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]];
   dirs.forEach(([dx, dy], i) => {

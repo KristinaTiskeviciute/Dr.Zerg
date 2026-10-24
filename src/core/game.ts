@@ -2,6 +2,7 @@ import {
   BOARD_COLS,
   BOARD_ROWS,
   CLEAR_ANIMATION_MS,
+  ENTRY_DELAY_MS,
   FALL_INTERVAL_MS,
   FAST_GARBAGE_MULTIPLIER,
   GARBAGE_FALL_STEP_MS,
@@ -48,8 +49,8 @@ export type GameEvent =
   | { type: 'spawn' }
   | { type: 'move' }
   | { type: 'rotate' }
-  | { type: 'lock' }
-  | { type: 'clear'; chain: number; lines: number; cells: Pos[] }
+  | { type: 'lock'; cells: Pos[] }
+  | { type: 'clear'; chain: number; lines: number; cells: Pos[]; germs: number }
   | { type: 'garbageOut'; colors: Color[] }
   | { type: 'garbageIn'; count: number }
   | { type: 'garbageLanded' }
@@ -78,6 +79,8 @@ export class Game {
 
   private fallTimer = 0;
   private lockTimer = 0;
+  /** Time left that a freshly spawned capsule hangs at the top before gravity starts. */
+  private spawnHold = 0;
   private phaseTimer = 0;
   private chainStep = 0;
   private chainLineColors: Color[] = [];
@@ -110,6 +113,11 @@ export class Game {
 
   get pendingGarbage(): number {
     return this.garbageQueue.reduce((n, a) => n + a.length, 0);
+  }
+
+  /** Colors of all queued garbage pieces, oldest attack first (for the incoming preview). */
+  get queuedGarbage(): Color[] {
+    return this.garbageQueue.flat();
   }
 
   fallIntervalMs(): number {
@@ -151,6 +159,17 @@ export class Game {
     if (input.left !== input.right) {
       const m = tryMove(board, c, 0, input.left ? -1 : 1);
       if (m) { c = m; this.emit({ type: 'move' }); }
+    }
+
+    // Just spawned: it hangs at the top for a moment (you can already rotate and move it).
+    // Soft drop skips the wait.
+    if (this.spawnHold > 0) {
+      if (input.softDrop) this.spawnHold = 0;
+      else {
+        this.spawnHold -= dt;
+        this.active = c;
+        return;
+      }
     }
 
     const grounded = !tryMove(board, c, 1, 0);
@@ -205,7 +224,8 @@ export class Game {
 
   // --- Transitions ---
 
-  private spawn(): void {
+  /** `hold`: hang at the top for ENTRY_DELAY_MS before gravity starts (every capsule but the first). */
+  private spawn(hold = false): void {
     const capsule: Capsule = {
       row: 0,
       col: Math.floor(BOARD_COLS / 2) - 1,
@@ -219,6 +239,7 @@ export class Game {
     this.active = capsule;
     this.fallTimer = 0;
     this.lockTimer = 0;
+    this.spawnHold = hold ? ENTRY_DELAY_MS : 0;
     this.phase = 'falling';
     this.emit({ type: 'spawn' });
   }
@@ -227,7 +248,7 @@ export class Game {
     const [a, b] = capsuleHalves(this.active!);
     this.active = null;
     this.pieceIndex++;
-    this.emit({ type: 'lock' });
+    this.emit({ type: 'lock', cells: [a.pos, b.pos] });
     if (a.pos.row < 0 || b.pos.row < 0) return this.finish('lost');
     this.board.placeCapsule(a.pos, a.color, b.pos, b.color);
     this.chainStep = 0;
@@ -252,7 +273,8 @@ export class Game {
       }
       this.clearingCells = cells;
       this.clearProgress = 0;
-      this.emit({ type: 'clear', chain: this.chainStep, lines: matches.length, cells });
+      const germs = cells.filter(p => this.board.get(p.row, p.col)?.kind === 'germ').length;
+      this.emit({ type: 'clear', chain: this.chainStep, lines: matches.length, cells, germs });
       return this.enter('clearing');
     }
 
@@ -267,7 +289,7 @@ export class Game {
       this.dropGarbage(attack);
       return;
     }
-    this.spawn();
+    this.spawn(true);
   }
 
   private dropGarbage(colors: Color[]): void {

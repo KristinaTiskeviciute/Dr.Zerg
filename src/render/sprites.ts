@@ -157,6 +157,11 @@ export function germFrame(color: Color, frame: number): Grid {
   return s.a.map((row, i) => s.b[i] ?? row);
 }
 
+/** A germ's "defeated" face for the clear animation: eyes squeezed shut into dark dashes. */
+export function germDefeated(color: Color): Grid {
+  return GERM_SPRITES[color].a.map(row => row.replace(/W/g, 'b').replace(/k/g, 'o'));
+}
+
 // --- Grid transforms ---
 
 /** Rotate 90° clockwise `turns` times. */

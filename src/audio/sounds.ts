@@ -7,9 +7,12 @@ import { Pattern } from './zzfxm';
 export const SFX = {
   move: [.2, 0, 520, 0, .01, .03, 1, 1],
   rotate: [.22, 0, 660, 0, .015, .04, 1, 1, 0, 0, 220, .02],
-  lock: [.45, 0, 160, 0, .02, .07, 1, 1, -.4],
+  lock: [.55, 0, 150, 0, .03, .09, 1, 1, -.7, 0, 0, 0, 0, .15], // a weightier thunk
   clear: [.5, 0, 440, .005, .04, .18, 0, 1, .6], // pitched up with each chain step
+  germ: [.55, 0, 320, 0, .03, .14, 2, 1, -3, 0, 0, 0, 0, .15], // germ squished
+  chain: [.35, 0, 660, .01, .05, .22, 0, 1, 0, 0, 330, .06], // sparkle on chain steps 2+
   attack: [.35, 0, 260, .02, .06, .18, 2, 1, 1.5], // you sent garbage
+  warning: [.4, 0, 880, 0, .05, .1, 5, .5, 0, 0, -220, .07, .16], // garbage just sent your way (two-tone alarm)
   incoming: [.3, 0, 330, 0, .03, .08, 5, 1, -1.5], // garbage appears at the top
   thud: [.8, 0, 85, 0, .05, .22, 0, 1, -.5, 0, 0, 0, 0, .6], // garbage lands
   tone: [.35, 0, 523.25, .005, .08, .18, 5, 1], // jingle notes (C5)

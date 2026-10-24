@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Color } from '../core/types';
-import { germFrame, Grid, PILL_HALF, PILL_SINGLE, pillGrid, rotate, shade, SPRITE_SIZE } from './sprites';
+import { germDefeated, germFrame, Grid, PILL_HALF, PILL_SINGLE, pillGrid, rotate, shade, SPRITE_SIZE } from './sprites';
 
 const ALLOWED = /^[.obWkm]+$/;
 
@@ -19,6 +19,8 @@ describe('sprites', () => {
     for (const c of [Color.Red, Color.Yellow, Color.Blue]) {
       checkGrid(`germ ${c} a`, germFrame(c, 0));
       checkGrid(`germ ${c} b`, germFrame(c, 1));
+      checkGrid(`germ ${c} defeated`, germDefeated(c));
+      expect(germDefeated(c).join('')).not.toMatch(/[Wk]/); // eyes shut
     }
   });
 

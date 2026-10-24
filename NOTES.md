@@ -11,7 +11,26 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - **Separate random streams:** germs, capsules and garbage columns each get their own seeded RNG (`deriveSeed`). Receiving garbage never changes your capsule sequence.
 - **Soft drop on the ground locks immediately.** Otherwise a landed capsule locks after `LOCK_DELAY_MS`.
 - **Speed ramp** is capped at `MIN_FALL_INTERVAL_MS`.
+- **Feel, from the NES data** (drmar.io wiki): sideways auto-repeat 267 ms then every 100 ms (was 170/50 — too twitchy). NES capsule fall starts faster than ours (Low 0.67 s, Med 0.33 s, Hi 0.23 s per row); kept ours slower for now. NES garbage falls at 4 frames/row; ours is deliberately slower by request (220 ms/row; loose halves 200 ms/row).
+- **Pause between capsules:** a new capsule spawns at once and is controllable, but hangs at the top for `ENTRY_DELAY_MS` (350 ms) before gravity starts; soft drop skips the hang. (Tried first: a flying toss from the preview — stressful; then a pause where the capsule was visible but not controllable — swallowed early rotations. Both removed.)
+- **Rotating in the top row** works: the row above the bottle (the neck) counts as free space for a falling capsule.
+- **Garbage warning:** the moment the opponent's chain sends garbage, you hear a two-tone alarm and the queued pieces appear (blinking) as little pills on the bottle's left shoulder, until they drop after your capsule locks. Online: trigger the same when a `garbage` message arrives.
+- **Juice:** germs show a defeated face and blink before bursting; capsule flashes white on lock; small screen shake on chains (2+) and when garbage lands; germ "squish" and chain sparkle sounds.
 - **Controls** (trying out): ← → move, ↑ rotate clockwise, ↓ or Space = soft drop (held), Z/X rotate counter-clockwise/clockwise. No hard drop. Previous try was ↑/↓ both rotating with Space as drop.
+
+## Milestones (revised)
+1. ✅ Single-player  2. ✅ Polish feel (ongoing)  3. Vs CPU  4. Relay server + rooms  5. Online versus  6. Deploy  7. Later
+
+## Vs CPU
+- `src/core/match.ts`: two boards, shared seed per round (new seed each round), garbage routed to the other board, best of 3 (`ROUNDS_TO_WIN`). Same class will drive online play.
+- `src/core/ai.ts`: the CPU searches every reachable resting spot (breadth-first over down/left/right/rotate, so it finds tucks and slide-unders), scores the resulting board (germs cleared, runs through germs, junk on top of germs, mixed-color stacks, height) and, on Normal/Hard, looks one capsule ahead. It then steers the capsule there with key presses at its own pace, re-planning as it falls.
+- Skills (`CPU_SKILLS` in config): Easy / Normal / Hard differ in think time, key speed, mistake rate, soft drop, chain building and attack pace.
+- Attacking: it values moves that send garbage, recognizes "chain ready" boards (one more half would clear 2+ lines) and builds toward them, and gets more aggressive the longer it goes without attacking (`attackEveryS`: Easy 60 s, Normal 40 s, Hard 25 s). Firing a chain is always worth more than holding it.
+- Panic mode: when capsule pieces (not germs) are within 6 rows of the top, it drops chain building and weighs stack height 5× — survive first.
+- Human-ish timing: reaction time varies ±40%, and it sometimes hesitates 0.5–1.5 s (Easy 30%, Normal 8%, Hard never).
+- One decision costs ~5–15 ms; if it ever causes a hitch on slow machines, spread the search over frames.
+- Garbage placement stays random (spread-out columns), not aimed at tall stacks. "Garbage prefers tall columns" could be an optional room setting later.
+- You and the CPU have separate level and speed. Fast garbage is a menu toggle in Vs CPU.
 
 ## Visuals
 - Pixel-art style: 16×16 sprites defined as text grids in `src/render/sprites.ts`, drawn on a small canvas and scaled up with pixelated rendering. Germs: red Spike (horns), yellow Buzz (antenna), blue Peep (three eyes).

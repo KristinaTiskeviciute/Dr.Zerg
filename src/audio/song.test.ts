@@ -11,11 +11,13 @@ describe('audio data', () => {
     expect(left.length / ZZFX_SAMPLE_RATE).toBeCloseTo(expectedSec, 0);
     expect(right.length).toBe(left.length);
     let peak = 0;
+    let bad = 0;
     for (let i = 0; i < left.length; i++) {
       const v = left[i] || 0;
-      expect(Number.isFinite(v)).toBe(true);
-      peak = Math.max(peak, Math.abs(v));
+      if (!Number.isFinite(v)) bad++;
+      else if (Math.abs(v) > peak) peak = Math.abs(v);
     }
+    expect(bad).toBe(0);
     expect(peak).toBeGreaterThan(0.05);
     expect(peak).toBeLessThan(1.5);
   });

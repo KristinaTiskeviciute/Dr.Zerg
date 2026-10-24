@@ -85,6 +85,17 @@ body::after {
   gap: 20px;
 }
 
+#menu:not(.cpu) .cpu-only { display: none !important; }
+#play:not(.vs) .vs-only { display: none !important; }
+#menu.cpu .panel { width: min(600px, calc(100% - 16px)); }
+
+.seg-mode button { font-size: 12px; padding: 14px 10px 12px; }
+.panel-cols { display: grid; grid-template-columns: 1fr; gap: 28px; }
+#menu.cpu .panel-cols { grid-template-columns: 1fr 1fr; }
+.panel-cols .col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.panel h3 { margin: 0; font-size: 12px; font-weight: normal; color: var(--yellow); }
+.field small { text-transform: none; font-size: 8px; color: var(--muted); opacity: 0.8; }
+
 .field { display: flex; flex-direction: column; gap: 12px; }
 .field label, .label { color: var(--muted); font-size: 10px; text-transform: uppercase; }
 .field output { color: var(--text); margin-left: 8px; font-size: 14px; }
@@ -144,6 +155,15 @@ canvas { display: block; image-rendering: pixelated; }
 .hud div { display: flex; flex-direction: column; gap: 8px; }
 .hud strong { font-size: 22px; font-weight: normal; text-shadow: 3px 3px 0 var(--edge); }
 #hud-germs { color: var(--yellow); }
+#hud-opp-germs { font-size: 16px; }
+
+.pips-row { display: flex; flex-direction: row !important; align-items: center; gap: 10px; font-size: 10px; }
+.pips { display: inline-flex; gap: 6px; }
+.pip { width: 12px; height: 12px; background: #262b62; box-shadow: 0 0 0 2px var(--edge); }
+.pip.on { background: var(--yellow); }
+.fast-flag { font-size: 9px; color: var(--yellow); line-height: 1.8; }
+
+.opponent { display: flex; flex-direction: column; align-items: center; gap: 10px; align-self: center; }
 
 .overlay {
   position: absolute;
@@ -160,6 +180,10 @@ canvas { display: block; image-rendering: pixelated; }
 .overlay h2 { margin: 0; font-size: 20px; font-weight: normal; color: var(--yellow); text-shadow: 3px 3px 0 var(--edge); line-height: 1.5; }
 .overlay p { margin: 0 0 12px; color: var(--muted); font-size: 10px; line-height: 1.8; }
 .overlay .buttons { display: flex; flex-direction: column; gap: 14px; width: 180px; }
+
+@media (max-width: 620px) {
+  #menu.cpu .panel-cols { grid-template-columns: 1fr; }
+}
 
 @media (max-width: 520px) {
   #play { flex-direction: column; gap: 14px; }
