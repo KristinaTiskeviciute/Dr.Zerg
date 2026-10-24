@@ -24,8 +24,9 @@
           <div class="seg seg-mode" id="mode">
             <button type="button" data-value="solo">Solo</button>
             <button type="button" data-value="cpu">Vs CPU</button>
+            <button type="button" data-value="online">Online</button>
           </div>
-          <div class="panel-cols">
+          <div class="panel-cols not-online">
             <div class="col">
               <h3 class="cpu-only">You</h3>
               <div class="field">
@@ -72,11 +73,71 @@
               <button type="button" data-value="on">On</button>
             </div>
           </div>
-          <button type="button" id="start" class="primary">Start</button>
+          <div class="online-only online-menu">
+            <div class="field">
+              <label for="menu-name">Your name</label>
+              <input type="text" id="menu-name" maxlength="16" placeholder="Player" autocomplete="nickname" />
+            </div>
+            <button type="button" id="create-room" class="primary">Create room</button>
+            <div class="field">
+              <label for="join-code">Or join a room</label>
+              <div class="join-row">
+                <input type="text" id="join-code" maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false" />
+                <button type="button" id="join-room">Join</button>
+              </div>
+            </div>
+            <p class="error" id="menu-error"></p>
+          </div>
+          <button type="button" id="start" class="primary not-online">Start</button>
         </div>
         <p class="controls">
           <kbd>←</kbd><kbd>→</kbd> move · <kbd>↑</kbd><kbd>X</kbd> rotate ↻ · <kbd>Z</kbd> rotate ↺ · <kbd>↓</kbd> drop · <kbd>P</kbd> pause · <kbd>M</kbd> mute
         </p>
+      </section>
+
+      <section id="lobby" class="screen hidden">
+        <div class="panel lobby-panel">
+          <div class="lobby-head">
+            <div>
+              <span class="label">Room</span>
+              <strong id="room-code">----</strong>
+            </div>
+            <button type="button" id="copy-link">Copy link</button>
+          </div>
+          <p class="status" id="lobby-status">Connecting…</p>
+          <ul class="players" id="lobby-players"></ul>
+          <div class="field">
+            <label for="lobby-name">Your name</label>
+            <input type="text" id="lobby-name" maxlength="16" placeholder="Player" autocomplete="nickname" />
+          </div>
+          <div class="panel-cols two">
+            <div class="field">
+              <label for="online-level">Your level <output id="online-level-out">5</output></label>
+              <input type="range" id="online-level" min="0" max="20" value="5" />
+            </div>
+            <div class="field">
+              <span class="label">Your speed</span>
+              <div class="seg" id="online-speed">
+                <button type="button" data-value="low">Low</button>
+                <button type="button" data-value="med">Med</button>
+                <button type="button" data-value="high">Hi</button>
+              </div>
+            </div>
+          </div>
+          <div class="field">
+            <span class="label">Fast garbage <small id="fast-note">(host decides)</small></span>
+            <div class="seg" id="online-fast">
+              <button type="button" data-value="off">Off</button>
+              <button type="button" data-value="on">On</button>
+            </div>
+          </div>
+          <p class="error" id="lobby-error"></p>
+          <div class="lobby-actions">
+            <button type="button" id="ready-btn">Ready</button>
+            <button type="button" id="start-online" class="primary">Start</button>
+          </div>
+          <button type="button" id="leave-room" class="quiet">Leave room</button>
+        </div>
       </section>
 
       <section id="play" class="screen hidden">
@@ -98,7 +159,12 @@
           <div><span class="label">Speed</span><strong id="hud-speed">Med</strong></div>
           <div><span class="label">Germs</span><strong id="hud-germs">0</strong></div>
           <div class="vs-only"><span class="label">CPU germs</span><strong id="hud-opp-germs">0</strong></div>
-          <div class="vs-only fast-flag" id="hud-fast">Fast garbage: ON</div>
+          <div class="match-only fast-flag" id="hud-fast">Fast garbage: ON</div>
+          <div class="online-play-only opp-note">
+            <span class="label">Opponent</span>
+            <strong id="opp-name">—</strong>
+            <span class="small-note">Their board appears here in the next step.</span>
+          </div>
           <p class="controls small">
             <kbd>←</kbd><kbd>→</kbd> move<br /><kbd>↑</kbd><kbd>X</kbd> rotate ↻<br /><kbd>Z</kbd> rotate ↺<br /><kbd>↓</kbd> drop<br /><kbd>P</kbd> pause
           </p>

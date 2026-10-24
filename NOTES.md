@@ -32,6 +32,14 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - Garbage placement stays random (spread-out columns), not aimed at tall stacks. "Garbage prefers tall columns" could be an optional room setting later.
 - You and the CPU have separate level and speed. Fast garbage is a menu toggle in Vs CPU.
 
+## Online rooms (milestone 4)
+- Relay: `server/index.ts` (Cloudflare Worker + Durable Object per room via `partyserver`, location hint `enam`). Room logic in `server/lobby.ts`. Messages in `src/net/protocol.ts`; the server validates everything it receives.
+- Rooms: 4-letter codes without I/L/O, created by the client; link `/r/CODE`. Max 2 players; first in is host; host passes on when the host's seat is freed.
+- Player id is per browser tab (sessionStorage), so two tabs = two players, and a reload keeps your seat.
+- Disconnects: seat kept for `RECONNECT_GRACE_S`, auto-reconnect with backoff, then the seat is freed.
+- Lobby: name, your level/speed (per player), Fast garbage (host only, locked once started), ready flags; host starts when both are ready. Server sends seed + relative 3 s countdown.
+- Not yet (milestone 5): opponent board snapshots, garbage over the network, results/best of 3, shared pause, disconnect handling mid-match.
+
 ## Visuals
 - Pixel-art style: 16×16 sprites defined as text grids in `src/render/sprites.ts`, drawn on a small canvas and scaled up with pixelated rendering. Germs: red Spike (horns), yellow Buzz (antenna), blue Peep (three eyes).
 - Font: Press Start 2P (SIL Open Font License), loaded from Google Fonts. Falls back to monospace offline.

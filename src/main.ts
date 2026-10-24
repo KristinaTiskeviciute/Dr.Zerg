@@ -9,7 +9,9 @@ import { KeyboardInput } from './input/keyboard';
 import { boardPixelSize, drawBoard, drawGerm } from './render/draw';
 import { BoardEffects } from './render/effects';
 import { gameView } from './render/view';
+import { makeRoomCode, normalizeRoomCode, StartInfo } from './net/protocol';
 import { $, loadSettings, saveSettings, Settings, SKILL_LABEL, SPEED_LABEL } from './ui/dom';
+import { OnlineRoom } from './ui/lobby';
 
 const canvas = $<HTMLCanvasElement>('#board');
 const ctx = canvas.getContext('2d')!;
@@ -20,10 +22,12 @@ keyboard.attach();
 const youFx = new BoardEffects();
 const oppFx = new BoardEffects();
 
-/** What's being played right now. Online play will become a third kind. */
+/** What's being played right now. */
 type Session =
   | { kind: 'solo'; game: Game }
-  | { kind: 'cpu'; match: Match; cpu: CpuController };
+  | { kind: 'cpu'; match: Match; cpu: CpuController }
+  // Online: your own board on the room's shared seed. startAt = end of the countdown.
+  | { kind: 'online'; game: Game; startAt: number; counting: boolean; opponent: string };
 
 let settings: Settings = loadSettings();
 let session: Session | null = null;
@@ -34,14 +38,28 @@ let lastTime = performance.now();
 /** Your own board in the current session. */
 function you(): Game | null {
   if (!session) return null;
-  return session.kind === 'solo' ? session.game : session.match.games[0];
+  return session.kind === 'cpu' ? session.match.games[0] : session.game;
 }
 
 /** True while boards should be advancing. */
 function running(): boolean {
   if (!session || paused) return false;
-  return session.kind === 'solo' ? !session.game.isOver : session.match.state === 'playing';
+  switch (session.kind) {
+    case 'solo': return !session.game.isOver;
+    case 'cpu': return session.match.state === 'playing';
+    case 'online': return !session.game.isOver && performance.now() >= session.startAt;
+  }
 }
+
+// --- Online room (lobby screen + connection) ---
+
+const room = new OnlineRoom(settings, {
+  onStart: startOnline,
+  onLeave: error => {
+    showMenu();
+    $('#menu-error').textContent = error ?? '';
+  },
+});
 
 // --- Audio: unlocked by the first key press or click (browser rule) ---
 
@@ -103,18 +121,36 @@ const menuRenderers = [
 function renderMenu(): void {
   for (const r of menuRenderers) r();
   $('#menu').classList.toggle('cpu', settings.mode === 'cpu');
+  $('#menu').classList.toggle('online', settings.mode === 'online');
+  $<HTMLInputElement>('#menu-name').value = settings.name;
 }
 
 $('#start').addEventListener('click', () => (settings.mode === 'cpu' ? startCpuMatch() : startSolo(settings.level)));
+
+$<HTMLInputElement>('#menu-name').addEventListener('input', e => {
+  settings.name = (e.target as HTMLInputElement).value.trim().slice(0, 16);
+  saveSettings(settings);
+});
+$('#create-room').addEventListener('click', () => room.enter(makeRoomCode()));
+const joinCode = $<HTMLInputElement>('#join-code');
+function joinTypedRoom(): void {
+  const code = normalizeRoomCode(joinCode.value);
+  if (code) room.enter(code);
+  else $('#menu-error').textContent = 'Room codes are 4 letters, like KQTZ.';
+}
+$('#join-room').addEventListener('click', joinTypedRoom);
+joinCode.addEventListener('keydown', e => { if (e.key === 'Enter') joinTypedRoom(); });
 
 function showMenu(): void {
   session = null;
   keyboard.enabled = false;
   audio.stopMusic();
   $('#play').classList.add('hidden');
+  $('#lobby').classList.add('hidden');
   $('#menu').classList.remove('hidden');
+  $('#menu-error').textContent = '';
   renderMenu();
-  $('#start').focus();
+  (settings.mode === 'online' ? $('#create-room') : $('#start')).focus();
 }
 
 // --- Starting games ---
@@ -129,10 +165,13 @@ function enterPlay(): void {
   audio.startMusic();
   hideOverlay();
   $('#menu').classList.add('hidden');
+  $('#lobby').classList.add('hidden');
   $('#play').classList.remove('hidden');
   $('#play').classList.toggle('vs', session?.kind === 'cpu');
-  $('#hud-level').textContent = String(settings.level);
-  $('#hud-speed').textContent = SPEED_LABEL[settings.speed];
+  $('#play').classList.toggle('online', session?.kind === 'online');
+  const me = you();
+  $('#hud-level').textContent = String(me?.level ?? settings.level);
+  $('#hud-speed').textContent = SPEED_LABEL[me?.speed ?? settings.speed];
   sizeCanvases();
 }
 
@@ -156,6 +195,24 @@ function startCpuMatch(): void {
   $('#opp-label').textContent = `CPU · ${SKILL_LABEL[settings.cpuSkill]} · Lv ${settings.cpuLevel}`;
   $('#hud-fast').classList.toggle('hidden', !settings.fastGarbage);
   enterPlay();
+}
+
+/** The host pressed Start: play your own board on the shared seed after the countdown. */
+function startOnline(info: StartInfo): void {
+  const me = info.players.find(p => p.id === room.me);
+  if (!me) return;
+  const opponent = info.players.find(p => p.id !== room.me)?.name ?? 'Opponent';
+  session = {
+    kind: 'online',
+    game: new Game({ level: me.level, speed: me.speed, seed: info.seed, fastGarbage: info.settings.fastGarbage, playerSalt: me.id }),
+    startAt: performance.now() + info.startInMs,
+    counting: true,
+    opponent,
+  };
+  $('#hud-fast').classList.toggle('hidden', !info.settings.fastGarbage);
+  $('#opp-name').textContent = opponent;
+  enterPlay();
+  showOverlay(String(Math.ceil(info.startInMs / 1000)), `vs ${opponent}`, []);
 }
 
 function nextRound(): void {
@@ -258,7 +315,23 @@ function onRoundOver(match: Match): void {
   }
 }
 
+function onOnlineOver(game: Game): void {
+  audio.stopMusic();
+  audio.jingle(game.phase === 'won' ? 'win' : 'lose');
+  const backToLobby = () => {
+    session = null;
+    keyboard.enabled = false;
+    room.backToLobby();
+  };
+  showOverlay(
+    game.phase === 'won' ? 'Bottle clean!' : 'Topped out',
+    'Live versus (their board, garbage, results) comes in the next step.',
+    [['Back to lobby', backToLobby]],
+  );
+}
+
 function togglePause(): void {
+  if (session?.kind === 'online') return; // shared pause comes with live versus
   if (!running() && !paused) return;
   paused = !paused;
   audio.setMusicPaused(paused);
@@ -344,13 +417,13 @@ function renderPips(id: string, wins: number): void {
 function step(): void {
   if (!session) return;
   const input = keyboard.poll(SIM_STEP_MS);
-  if (session.kind === 'solo') {
+  if (session.kind === 'solo' || session.kind === 'online') {
     const g = session.game;
     g.step(SIM_STEP_MS, input);
     const events = g.drainEvents();
     handleYourEvents(events);
     youFx.onEvents(events);
-    if (g.isOver) onSoloOver(g);
+    if (g.isOver) (session.kind === 'solo' ? onSoloOver : onOnlineOver)(g);
   } else {
     const { match, cpu } = session;
     const [mine, theirs] = match.step(SIM_STEP_MS, [input, cpu.poll(match.games[1], SIM_STEP_MS)]);
@@ -378,6 +451,17 @@ function applyShake(c: HTMLCanvasElement, fx: BoardEffects, now: number): void {
 function frame(now: number): void {
   const dt = Math.min(now - lastTime, MAX_FRAME_MS);
   lastTime = now;
+
+  // Online countdown: 3, 2, 1, then go.
+  if (session?.kind === 'online' && session.counting) {
+    const left = session.startAt - now;
+    if (left > 0) setText('#overlay-title', String(Math.ceil(left / 1000)));
+    else {
+      session.counting = false;
+      acc = 0;
+      hideOverlay();
+    }
+  }
 
   if (running()) {
     acc += dt;
@@ -416,6 +500,18 @@ function frame(now: number): void {
 const params = new URLSearchParams(location.search);
 if (import.meta.env.DEV && params.get('mode') === 'cpu') settings.mode = 'cpu';
 showMenu();
+// A shared link (/r/ABCD) goes straight into that room's lobby.
+const linkedRoom = /^\/r\/([^/]+)\/?$/.exec(location.pathname);
+if (linkedRoom) {
+  const code = normalizeRoomCode(linkedRoom[1]);
+  settings.mode = 'online';
+  if (code) room.enter(code);
+  else {
+    history.replaceState(null, '', '/');
+    showMenu();
+    $('#menu-error').textContent = "That room link doesn't look right.";
+  }
+}
 if (import.meta.env.DEV && params.has('play')) startSolo(Math.min(MAX_LEVEL, Number(params.get('play')) || 0));
 if (import.meta.env.DEV && params.has('cpu')) {
   settings.level = Math.min(MAX_LEVEL, Number(params.get('cpu')) || 0);
