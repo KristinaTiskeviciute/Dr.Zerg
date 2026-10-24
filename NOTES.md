@@ -11,6 +11,7 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - **Separate random streams:** germs, capsules and garbage columns each get their own seeded RNG (`deriveSeed`). Receiving garbage never changes your capsule sequence.
 - **Soft drop on the ground locks immediately.** Otherwise a landed capsule locks after `LOCK_DELAY_MS`.
 - **Speed ramp** is capped at `MIN_FALL_INTERVAL_MS`.
+- **Controls** (changed from spec after play-testing): ← → move, ↑ rotate clockwise, ↓ rotate counter-clockwise (Z/X also work), Space = soft drop (held). No hard drop.
 
 ## Online design decisions
 - **No local 2-player.** Garbage is tested in single-player with the dev-only `9` key (sends yourself 2–4 pieces).

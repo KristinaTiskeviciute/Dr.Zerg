@@ -9,9 +9,9 @@ export type Bindings = Record<Action, string[]>;
 export const DEFAULT_BINDINGS: Bindings = {
   left: ['ArrowLeft'],
   right: ['ArrowRight'],
-  softDrop: ['ArrowDown'],
-  rotateCW: ['KeyX'],
-  rotateCCW: ['KeyZ'],
+  softDrop: ['Space'],
+  rotateCW: ['ArrowUp', 'KeyX'],
+  rotateCCW: ['ArrowDown', 'KeyZ'],
 };
 
 /**
@@ -26,6 +26,8 @@ export class KeyboardInput {
   private dasTimer = 0;
   private repeating = false;
   private freshPress = false;
+  /** While false, keys pass through untouched (so Space still works on menu buttons). */
+  enabled = false;
 
   constructor(bindings: Bindings = DEFAULT_BINDINGS) {
     for (const [action, codes] of Object.entries(bindings) as [Action, string[]][]) {
@@ -95,7 +97,7 @@ export class KeyboardInput {
 
   private onKeyDown(e: KeyboardEvent): void {
     const action = this.codeToAction.get(e.code);
-    if (!action) return;
+    if (!action || !this.enabled) return;
     e.preventDefault();
     if (e.repeat) return;
     this.held.add(action);
@@ -108,8 +110,8 @@ export class KeyboardInput {
 
   private onKeyUp(e: KeyboardEvent): void {
     const action = this.codeToAction.get(e.code);
-    if (!action) return;
-    e.preventDefault();
+    if (!action || !this.enabled) return;
+    e.preventDefault(); // also stops Space from "clicking" a focused button on release
     this.held.delete(action);
   }
 }

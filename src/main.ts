@@ -46,6 +46,7 @@ $('#start').addEventListener('click', () => startGame(settings.level));
 
 function showMenu(): void {
   game = null;
+  keyboard.enabled = false;
   $('#play').classList.add('hidden');
   $('#menu').classList.remove('hidden');
   renderMenu();
@@ -54,15 +55,21 @@ function showMenu(): void {
 
 // --- Game ---
 
+/** Scale the board to fill the window height (leaving room for the HUD beside it). */
 function sizeCanvas(): void {
   const { width, height } = boardPixelSize(8, 16);
+  const narrow = window.innerWidth <= 520;
+  const availW = window.innerWidth - (narrow ? 32 : 220);
+  const availH = window.innerHeight - (narrow ? 120 : 32);
+  const scale = Math.max(0.5, Math.min(availW / width, availH / height));
   const dpr = window.devicePixelRatio || 1;
-  canvas.width = width * dpr;
-  canvas.height = height * dpr;
-  canvas.style.width = `${width}px`;
-  canvas.style.height = `${height}px`;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  canvas.width = Math.round(width * scale * dpr);
+  canvas.height = Math.round(height * scale * dpr);
+  canvas.style.width = `${Math.round(width * scale)}px`;
+  canvas.style.height = `${Math.round(height * scale)}px`;
+  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
 }
+window.addEventListener('resize', () => { if (game) sizeCanvas(); });
 
 function startGame(level: number): void {
   settings.level = level;
@@ -71,6 +78,7 @@ function startGame(level: number): void {
   paused = false;
   acc = 0;
   keyboard.reset();
+  keyboard.enabled = true;
   hideOverlay();
   $('#menu').classList.add('hidden');
   $('#play').classList.remove('hidden');
@@ -155,7 +163,10 @@ function frame(now: number): void {
   }
 
   if (game) {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
     if (!paused) drawBoard(ctx, gameView(game), 0, 0, now);
     const germs = String(game.germsLeft);
     const hud = $('#hud-germs');
