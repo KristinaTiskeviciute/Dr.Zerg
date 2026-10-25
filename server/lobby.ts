@@ -151,6 +151,18 @@ export class Lobby {
     return this.finishRound(other, 'disconnect', id, true);
   }
 
+  /**
+   * "Play again" from the results screen: you're ready for another match, and it starts
+   * (no host needed) once everyone has said so. Returns the start info when it does.
+   */
+  playAgain(id: string, seed: number): Result<StartInfo | null> {
+    const ready = this.setReady(id, true);
+    if (!ready.ok) return ready;
+    if (!this.canStart || !this.hostId) return ok(null);
+    const started = this.start(this.hostId, seed);
+    return ok(started.ok ? started.value : null);
+  }
+
   /** After a match: everyone back to the lobby, same settings, not ready. */
   backToLobby(): void {
     this.phase = 'lobby';

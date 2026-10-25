@@ -41,6 +41,12 @@ export class GamepadInput {
   constructor(private readonly target: PadTarget, private readonly handlers: PadHandlers) {
     window.addEventListener('gamepadconnected', e => {
       if (this.index === null) this.index = e.gamepad.index;
+      const act = (e.gamepad as Gamepad & { vibrationActuator?: { effects?: string[] } }).vibrationActuator;
+      // Rumble support varies a lot by browser and connection (e.g. DualSense over Bluetooth).
+      console.info(
+        `[controller] ${e.gamepad.id} · layout: ${e.gamepad.mapping || 'non-standard'} · rumble: ` +
+        (act ? `yes (${act.effects?.join(', ') ?? 'effects not listed'})` : 'not supported by this browser/connection'),
+      );
       this.handlers.onChange(true);
     });
     window.addEventListener('gamepaddisconnected', e => {
@@ -87,12 +93,23 @@ export class GamepadInput {
 
   /** Rumble, if the controller and browser support it. */
   rumble(ms: number, strong: number, weak: number): void {
-    const pad = this.pad() as (Gamepad & { vibrationActuator?: { playEffect?: Function } }) | null;
+    type Actuator = { playEffect?: (type: string, params: object) => Promise<unknown> | undefined };
+    const pad = this.pad() as (Gamepad & { vibrationActuator?: Actuator }) | null;
     try {
-      void pad?.vibrationActuator?.playEffect?.('dual-rumble', {
-        duration: ms, strongMagnitude: Math.min(1, strong), weakMagnitude: Math.min(1, weak),
+      const result = pad?.vibrationActuator?.playEffect?.('dual-rumble', {
+        startDelay: 0, duration: ms, strongMagnitude: Math.min(1, strong), weakMagnitude: Math.min(1, weak),
       });
-    } catch { /* not supported */ }
+      result?.catch?.(err => this.warnOnce(`rumble refused by the browser: ${err}`));
+    } catch (err) {
+      this.warnOnce(`rumble failed: ${err}`);
+    }
+  }
+
+  private warned = false;
+  private warnOnce(msg: string): void {
+    if (this.warned) return;
+    this.warned = true;
+    console.warn(`[controller] ${msg}`);
   }
 
   private pad(): Gamepad | null {

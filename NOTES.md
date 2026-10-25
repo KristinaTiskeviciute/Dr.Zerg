@@ -46,6 +46,7 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - Board snapshots (`src/net/snapshot.ts`): 1 char per cell + falling capsule + next + popping cells + queued garbage + germ count, under 400 bytes; sent at `BOARD_SNAPSHOT_HZ` when changed and at least every 500 ms (doubles as heartbeat). Server checks the shape and relays.
 - Garbage: your `garbageOut` → `garbage` message → opponent's queue (warning sound + shoulder preview).
 - Results: each client reports `cleared` / `toppedOut` / `forfeit`; the server's first report decides the round. First to 3 round wins (shown as stars) takes the match, like the original — changed from the spec's "best of 3"; next round starts automatically after `ROUND_BREAK_MS` (4 s) with a new seed; match over → room back to the lobby.
+- After a match: **Play again** (`playAgain`) marks you ready; the next match starts automatically once both have pressed it (no host Start needed). **Back to lobby** to change settings first.
 - Shared pause: P sends `pause`; both boards freeze and hide; resume = 3 s countdown for both.
 - No word from the opponent for 2 s → both pause ("Connection problem…"). Your own connection down → "Reconnecting…".
 - Opponent disconnects → "Opponent disconnected (15 s)"; back in time → 3 s countdown; not back → they lose the match and their seat is freed.

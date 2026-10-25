@@ -65,7 +65,7 @@ describe('GamepadInput', () => {
 
   it('rumbles through the controller', () => {
     input.rumble(100, 0.5, 2);
-    expect(fake.effects).toEqual([{ duration: 100, strongMagnitude: 0.5, weakMagnitude: 1 }]);
+    expect(fake.effects).toEqual([{ startDelay: 0, duration: 100, strongMagnitude: 0.5, weakMagnitude: 1 }]);
   });
 
   it('does nothing without a controller', () => {

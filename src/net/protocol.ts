@@ -61,6 +61,8 @@ export type ClientMessage =
   | { t: 'settings'; fastGarbage: boolean }
   | { t: 'start' }
   | { t: 'backToLobby' }
+  /** After a match: ready for another; it starts as soon as everyone has said so. */
+  | { t: 'playAgain' }
   // During a match:
   | { t: 'board'; snap: BoardSnapshot }
   | { t: 'garbage'; colors: number[] }
@@ -140,6 +142,8 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return { t: 'start' };
     case 'backToLobby':
       return { t: 'backToLobby' };
+    case 'playAgain':
+      return { t: 'playAgain' };
     case 'board':
       return isSnapshot(m.snap) ? { t: 'board', snap: m.snap } : null;
     case 'garbage':

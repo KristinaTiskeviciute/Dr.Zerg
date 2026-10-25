@@ -172,6 +172,21 @@ describe('match', () => {
     expect(l.state.settings).toEqual({ fastGarbage: false });
   });
 
+  it('play again: the next match starts once both players have asked, without the host pressing Start', () => {
+    const l = playing();
+    for (let w = 0; w < ROUNDS_TO_WIN; w++) {
+      l.result('bob-123', 'cleared');
+      l.nextRound(w + 2);
+    }
+    expect(l.state.phase).toBe('lobby');
+    const first = l.playAgain('bob-123', 50); // the non-host asks first
+    expect(first.ok && first.value).toBeNull();
+    expect(l.state.phase).toBe('lobby');
+    const second = l.playAgain('alice-1', 51);
+    expect(second.ok && second.value && second.value.round).toBe(1);
+    expect(l.state.phase).toBe('playing');
+  });
+
   it('a player who never comes back loses the match', () => {
     const l = playing();
     l.disconnect('bob-123');

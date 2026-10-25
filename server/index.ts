@@ -70,6 +70,12 @@ export class Room extends Server<Env> {
         res = started;
         break;
       }
+      case 'playAgain': {
+        const again = this.lobby.playAgain(id, randomSeed());
+        if (again.ok && again.value) this.broadcastJson({ t: 'start', ...again.value });
+        res = again;
+        break;
+      }
     }
     if (!res.ok) this.send(conn, { t: 'error', code: res.code, message: res.message });
     else this.broadcastLobby();

@@ -366,6 +366,7 @@ function onOnlineRound(s: OnlineSession, r: RoundResult): void {
   overlayKey = 'result';
   if (r.matchOver) {
     showOverlay(iWon ? 'You win the match!' : `${s.opponentName} wins the match`, `${why}. ${score}`, [
+      ['Play again', () => playAgainOnline(s)],
       ['Back to lobby', leaveOnlineMatch],
       ['Leave room', () => room.leave()],
     ]);
@@ -373,6 +374,12 @@ function onOnlineRound(s: OnlineSession, r: RoundResult): void {
     const round = s.info.round;
     showOverlay(iWon ? `You take round ${round}` : `${s.opponentName} takes round ${round}`, `${why}. ${score}. Next round coming up…`, []);
   }
+}
+
+/** Ready for another match with the same settings; it starts once the other player agrees. */
+function playAgainOnline(s: OnlineSession): void {
+  room.send({ t: 'playAgain' });
+  showOverlay('Play again', `Waiting for ${s.opponentName}…`, [['Back to lobby', leaveOnlineMatch]]);
 }
 
 function leaveOnlineMatch(): void {
@@ -556,7 +563,7 @@ function onRoundOver(match: Match): void {
 
   if (match.state === 'matchOver') {
     const title = match.matchWinner === 0 ? 'You win the match!' : 'The CPU wins';
-    showOverlay(title, `${why}. ${score}`, [['Rematch', startCpuMatch], ['Menu', showMenu]]);
+    showOverlay(title, `${why}. ${score}`, [['Play again', startCpuMatch], ['Menu', showMenu]]);
   } else {
     const title =
       match.roundWinner === 0 ? `You take round ${match.round}` :

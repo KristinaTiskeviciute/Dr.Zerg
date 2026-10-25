@@ -13,11 +13,13 @@ export class Rumble {
     } catch { /* storage unavailable */ }
   }
 
+  /** Switch on/off; switching on plays a test rumble so you can tell right away if it works. */
   toggle(): void {
     this.on = !this.on;
     try {
       localStorage.setItem(KEY, this.on ? 'on' : 'off');
     } catch { /* ignore */ }
+    this.play(300, 0.7, 0.7);
   }
 
   /** Your own board's events. */
