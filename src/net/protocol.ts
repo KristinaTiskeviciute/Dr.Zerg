@@ -46,6 +46,8 @@ export interface LobbyPlayer {
 
 export interface RoomSettings {
   fastGarbage: boolean;
+  /** Outbreak mode (3–4 players): every chain's garbage goes to all other players. */
+  outbreak: boolean;
 }
 
 export interface LobbyState {
@@ -60,7 +62,8 @@ export type ClientMessage =
   | { t: 'join'; playerId: string; name: string }
   | { t: 'setup'; level: number; speed: Speed }
   | { t: 'ready'; ready: boolean }
-  | { t: 'settings'; fastGarbage: boolean }
+  /** Host changes one or more room settings. */
+  | { t: 'settings'; fastGarbage?: boolean; outbreak?: boolean }
   | { t: 'start' }
   | { t: 'backToLobby' }
   /** After a match: ready for another; it starts as soon as everyone has said so. */
@@ -141,8 +144,12 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return isLevel(m.level) && isSpeed(m.speed) ? { t: 'setup', level: m.level, speed: m.speed } : null;
     case 'ready':
       return typeof m.ready === 'boolean' ? { t: 'ready', ready: m.ready } : null;
-    case 'settings':
-      return typeof m.fastGarbage === 'boolean' ? { t: 'settings', fastGarbage: m.fastGarbage } : null;
+    case 'settings': {
+      const fg = typeof m.fastGarbage === 'boolean' ? m.fastGarbage : undefined;
+      const ob = typeof m.outbreak === 'boolean' ? m.outbreak : undefined;
+      if (fg === undefined && ob === undefined) return null;
+      return { t: 'settings', ...(fg !== undefined && { fastGarbage: fg }), ...(ob !== undefined && { outbreak: ob }) };
+    }
     case 'start':
       return { t: 'start' };
     case 'backToLobby':

@@ -82,6 +82,13 @@
               <button type="button" data-value="on">On</button>
             </div>
           </div>
+          <div class="field cpu-only multi-only">
+            <span class="label">Outbreak <small>(every chain sends garbage to everyone)</small></span>
+            <div class="seg" id="outbreak">
+              <button type="button" data-value="off">Off</button>
+              <button type="button" data-value="on">On</button>
+            </div>
+          </div>
           <div class="online-only online-menu">
             <div class="field">
               <label for="menu-name">Your name</label>
@@ -143,6 +150,13 @@
               <button type="button" data-value="on">On</button>
             </div>
           </div>
+          <div class="field">
+            <span class="label">Outbreak <small>(3–4 players: every chain hits everyone)</small></span>
+            <div class="seg" id="online-outbreak">
+              <button type="button" data-value="off">Off</button>
+              <button type="button" data-value="on">On</button>
+            </div>
+          </div>
           <p class="error" id="lobby-error"></p>
           <div class="lobby-actions">
             <button type="button" id="ready-btn">Ready</button>
@@ -173,6 +187,7 @@
             <div class="germ-counts" id="hud-germ-list"></div>
           </div>
           <div class="match-only fast-flag" id="hud-fast">Fast garbage: ON</div>
+          <div class="match-only fast-flag hidden" id="hud-outbreak">Outbreak: ON</div>
           <p class="controls small">
             <kbd>←</kbd><kbd>→</kbd> move<br /><kbd>↑</kbd><kbd>X</kbd> rotate ↻<br /><kbd>Z</kbd> rotate ↺<br /><kbd>↓</kbd> drop<br /><kbd>P</kbd> pause
           </p>

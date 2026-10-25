@@ -15,6 +15,8 @@ export interface MatchOptions {
   players: PlayerSetup[];
   seed: number;
   fastGarbage: boolean;
+  /** Outbreak mode: every chain's garbage goes to all other players still in. */
+  outbreak?: boolean;
   roundsToWin?: number;
   /** Tests: set up each player's board instead of placing germs. */
   setupBoard?: (board: Board, player: number) => void;
@@ -70,7 +72,7 @@ export class Match {
 
   /** Who garbage from `from` goes to, given the colors of the chain's first clear. */
   targetsFor(from: number, firstColors: Color[]): number[] {
-    return garbageTargets(from, this.games.map((_, i) => this.isAlive(i)), firstColors);
+    return garbageTargets(from, this.games.map((_, i) => this.isAlive(i)), firstColors, this.opts.outbreak);
   }
 
   /** Advance every board one step. Returns each board's events and the garbage sent. */

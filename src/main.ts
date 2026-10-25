@@ -208,6 +208,7 @@ const menuRenderers = [
   bindSeg('cpu-skill', 'cpuSkill', v => v as Settings['cpuSkill'], v => v),
   bindSeg('cpu-count', 'cpuCount', v => Number(v), v => String(v)),
   bindSeg('fast-garbage', 'fastGarbage', v => v === 'on', v => (v ? 'on' : 'off')),
+  bindSeg('outbreak', 'outbreak', v => v === 'on', v => (v ? 'on' : 'off')),
   bindLevel('level', 'level'),
   bindLevel('cpu-level', 'cpuLevel'),
 ];
@@ -216,6 +217,7 @@ function renderMenu(): void {
   for (const r of menuRenderers) r();
   $('#menu').classList.toggle('cpu', settings.mode === 'cpu');
   $('#menu').classList.toggle('online', settings.mode === 'online');
+  $('#menu').classList.toggle('multi', settings.cpuCount >= 2); // Outbreak only matters with 3+ players
   $<HTMLInputElement>('#menu-name').value = settings.name;
 }
 
@@ -294,6 +296,7 @@ function startCpuMatch(): void {
     ],
     seed: randomSeed(),
     fastGarbage: settings.fastGarbage,
+    outbreak: settings.outbreak && count >= 2,
   });
   session = { kind: 'cpu', match, cpus: newCpus(count), startAt: performance.now() + START_COUNTDOWN_MS };
   overlayKey = '';
@@ -301,6 +304,7 @@ function startCpuMatch(): void {
   const detail = `${SKILL_LABEL[settings.cpuSkill]} · Lv ${settings.cpuLevel}`;
   setupPlayers(['You', ...names], names.map(n => (count === 1 ? `CPU · ${detail}` : `${n} · ${detail}`)));
   $('#hud-fast').classList.toggle('hidden', !settings.fastGarbage);
+  $('#hud-outbreak').classList.toggle('hidden', !(settings.outbreak && count >= 2));
   enterPlay();
 }
 
@@ -330,6 +334,7 @@ function startOnline(info: StartInfo): void {
   };
   setupPlayers(['You', ...others.map(p => p.name)], others.map(p => `${p.name} · Lv ${p.level} · ${SPEED_LABEL[p.speed]}`));
   $('#hud-fast').classList.toggle('hidden', !info.settings.fastGarbage);
+  $('#hud-outbreak').classList.toggle('hidden', !(info.settings.outbreak && others.length >= 2));
   overlayKey = '';
   enterPlay();
 }
@@ -762,7 +767,7 @@ function step(): void {
         const s = session;
         const seats = s.info.players.map(p => p.id);
         const alive = seats.map(id => id === room.me || !s.opps.find(o => o.id === id)?.out);
-        for (const t of garbageTargets(seats.indexOf(room.me), alive, e.firstColors)) {
+        for (const t of garbageTargets(seats.indexOf(room.me), alive, e.firstColors, s.info.settings.outbreak)) {
           const k = s.opps.findIndex(o => o.id === seats[t]);
           if (k >= 0) opponents.fx(k).markIncoming();
         }

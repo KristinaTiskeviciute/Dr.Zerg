@@ -204,3 +204,12 @@ describe('Match with 3–4 players', () => {
     expect(garbage).toBeGreaterThan(0);
   }, 240_000);
 });
+
+describe('Outbreak mode (Vs CPU)', () => {
+  it('sends every chain to all other players still in', () => {
+    const four = [0, 1, 2, 3].map(() => ({ level: 3, speed: 'med' as const }));
+    const m = new Match({ players: four, seed: 1, fastGarbage: false, outbreak: true });
+    expect(m.targetsFor(0, [Y])).toEqual([1, 2, 3]);
+    expect(m.targetsFor(2, [B])).toEqual([3, 0, 1]);
+  });
+});

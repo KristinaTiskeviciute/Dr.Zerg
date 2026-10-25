@@ -189,6 +189,9 @@ export class OnlineRoom {
     for (const b of document.querySelectorAll<HTMLButtonElement>('#online-fast button')) {
       b.addEventListener('click', () => this.conn?.send({ t: 'settings', fastGarbage: b.dataset.value === 'on' }));
     }
+    for (const b of document.querySelectorAll<HTMLButtonElement>('#online-outbreak button')) {
+      b.addEventListener('click', () => this.conn?.send({ t: 'settings', outbreak: b.dataset.value === 'on' }));
+    }
     $('#ready-btn').addEventListener('click', () => this.conn?.send({ t: 'ready', ready: !this.mine()?.ready }));
     $('#start-online').addEventListener('click', () => this.conn?.send({ t: 'start' }));
     $('#leave-room').addEventListener('click', () => this.leave());
@@ -212,6 +215,11 @@ export class OnlineRoom {
     const fast = lobby?.settings.fastGarbage ?? false;
     for (const b of document.querySelectorAll<HTMLButtonElement>('#online-fast button')) {
       b.classList.toggle('on', (b.dataset.value === 'on') === fast);
+      b.disabled = !isHost;
+    }
+    const outbreak = lobby?.settings.outbreak ?? false;
+    for (const b of document.querySelectorAll<HTMLButtonElement>('#online-outbreak button')) {
+      b.classList.toggle('on', (b.dataset.value === 'on') === outbreak);
       b.disabled = !isHost;
     }
     $('#fast-note').textContent = isHost ? '(you decide, as host)' : '(host decides)';

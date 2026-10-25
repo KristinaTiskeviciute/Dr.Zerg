@@ -7,9 +7,12 @@ const TARGET_OFFSET: Record<Color, number> = { [Color.Blue]: 1, [Color.Yellow]: 
  * Who gets a chain's garbage. Players sit in a circle in `alive` order (index = seat).
  * With two seats it always goes to the other player; with more, each color in the chain's
  * first clear picks one target: blue → next player still in, yellow → two over, red → three
- * over, wrapping around and skipping players who are out.
+ * over, wrapping around and skipping players who are out. In Outbreak mode it goes to
+ * everyone still in.
  */
-export function garbageTargets(from: number, alive: readonly boolean[], firstColors: readonly Color[]): number[] {
+export function garbageTargets(
+  from: number, alive: readonly boolean[], firstColors: readonly Color[], outbreak = false,
+): number[] {
   const n = alive.length;
   const others: number[] = [];
   for (let k = 1; k < n; k++) {
@@ -17,6 +20,6 @@ export function garbageTargets(from: number, alive: readonly boolean[], firstCol
     if (alive[j]) others.push(j);
   }
   if (others.length === 0) return [];
-  if (n === 2) return others;
+  if (n === 2 || outbreak) return others;
   return [...new Set(firstColors.map(c => others[(TARGET_OFFSET[c] - 1) % others.length]))];
 }

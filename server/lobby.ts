@@ -5,7 +5,7 @@ import { ROUNDS_TO_WIN, Speed } from '../src/config';
 import { garbageTargets } from '../src/core/targeting';
 import { Color } from '../src/core/types';
 import {
-  ErrorCode, LobbyPlayer, LobbyState, MAX_PLAYERS, MIN_PLAYERS, Outcome, ROUND_BREAK_MS, RoundResult,
+  ErrorCode, LobbyPlayer, LobbyState, MAX_PLAYERS, MIN_PLAYERS, Outcome, ROUND_BREAK_MS, RoomSettings, RoundResult,
   START_COUNTDOWN_MS, StartInfo,
 } from '../src/net/protocol';
 
@@ -33,6 +33,7 @@ export class Lobby {
   private players: LobbyPlayer[] = [];
   private hostId: string | null = null;
   private fastGarbage = false;
+  private outbreak = false;
   private phase: LobbyState['phase'] = 'lobby';
   private match: MatchState | null = null;
 
@@ -43,7 +44,7 @@ export class Lobby {
       code: this.code,
       hostId: this.hostId,
       players: this.players.map(p => ({ ...p })),
-      settings: { fastGarbage: this.fastGarbage },
+      settings: this.settings,
       phase: this.phase,
     };
   }
@@ -112,11 +113,16 @@ export class Lobby {
     return ok(undefined);
   }
 
-  /** Room settings: host only, lobby only (locked once a match starts). */
-  setSettings(id: string, fastGarbage: boolean): Result {
+  private get settings(): RoomSettings {
+    return { fastGarbage: this.fastGarbage, outbreak: this.outbreak };
+  }
+
+  /** Room settings: host only, lobby only (locked once a match starts). Unset fields stay as they are. */
+  setSettings(id: string, change: Partial<RoomSettings>): Result {
     if (id !== this.hostId) return fail('notAllowed', 'Only the host can change room settings.');
     if (this.phase !== 'lobby') return fail('notAllowed', 'Settings are locked during a match.');
-    this.fastGarbage = fastGarbage;
+    if (change.fastGarbage !== undefined) this.fastGarbage = change.fastGarbage;
+    if (change.outbreak !== undefined) this.outbreak = change.outbreak;
     return ok(undefined);
   }
 
@@ -144,7 +150,7 @@ export class Lobby {
     const seat = this.players.findIndex(p => p.id === from);
     if (!m || m.roundOver || seat < 0 || m.out.has(from)) return [];
     const alive = this.players.map(p => !m.out.has(p.id));
-    return garbageTargets(seat, alive, firstColors).map(i => this.players[i].id);
+    return garbageTargets(seat, alive, firstColors, this.outbreak).map(i => this.players[i].id);
   }
 
   get inMatch(): boolean {
@@ -246,7 +252,7 @@ export class Lobby {
       seed,
       startInMs: START_COUNTDOWN_MS,
       players: this.players.map(({ id, name, level, speed }) => ({ id, name, level, speed })),
-      settings: { fastGarbage: this.fastGarbage },
+      settings: this.settings,
       round: this.match!.round,
       wins: { ...this.match!.wins },
     };

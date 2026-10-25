@@ -19,6 +19,8 @@ export interface Settings {
   /** How many CPU opponents (1–3). */
   cpuCount: number;
   fastGarbage: boolean;
+  /** Outbreak mode in Vs CPU with 2–3 CPUs. */
+  outbreak: boolean;
 }
 
 export const SPEED_LABEL: Record<Speed, string> = { low: 'Low', med: 'Med', high: 'Hi' };
@@ -26,7 +28,7 @@ export const SKILL_LABEL: Record<CpuSkillName, string> = { easy: 'Easy', normal:
 
 const KEY = 'drzerg.settings';
 const DEFAULTS: Settings = {
-  mode: 'solo', name: '', level: 5, speed: 'med', cpuSkill: 'normal', cpuLevel: 5, cpuSpeed: 'med', cpuCount: 1, fastGarbage: false,
+  mode: 'solo', name: '', level: 5, speed: 'med', cpuSkill: 'normal', cpuLevel: 5, cpuSpeed: 'med', cpuCount: 1, fastGarbage: false, outbreak: false,
 };
 
 const clampLevel = (n: unknown, fallback: number) =>
@@ -48,6 +50,7 @@ export function loadSettings(): Settings {
         cpuSpeed: isSpeed(raw.cpuSpeed) ? raw.cpuSpeed : DEFAULTS.cpuSpeed,
         cpuCount: [1, 2, 3].includes(raw.cpuCount) ? raw.cpuCount : DEFAULTS.cpuCount,
         fastGarbage: raw.fastGarbage === true,
+        outbreak: raw.outbreak === true,
       };
     }
   } catch { /* ignore */ }

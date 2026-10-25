@@ -65,7 +65,7 @@ export class Room extends Server<Env> {
     switch (msg.t) {
       case 'setup': res = this.lobby.setup(id, msg.level, msg.speed); break;
       case 'ready': res = this.lobby.setReady(id, msg.ready); break;
-      case 'settings': res = this.lobby.setSettings(id, msg.fastGarbage); break;
+      case 'settings': res = this.lobby.setSettings(id, { fastGarbage: msg.fastGarbage, outbreak: msg.outbreak }); break;
       case 'backToLobby':
         this.clearNextRound();
         this.lobby.backToLobby();

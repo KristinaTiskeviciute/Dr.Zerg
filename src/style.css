@@ -86,6 +86,7 @@ body::after {
 }
 
 #menu:not(.cpu) .cpu-only { display: none !important; }
+#menu:not(.multi) .multi-only { display: none !important; }
 #menu:not(.online) .online-only { display: none !important; }
 #menu.online .not-online { display: none !important; }
 
