@@ -56,6 +56,10 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - Font: Press Start 2P (SIL Open Font License), loaded from Google Fonts. Falls back to monospace offline.
 - Retro page styling: checker background, CRT scanlines, square pixel buttons.
 
+## Game controller
+- `src/input/gamepad.ts`: any controller the browser maps to the standard layout (PS5 DualSense, Xbox…). Circle rotate ↻, Cross rotate ↺, D-pad/left stick move, down soft drop, D-pad up rotate ↻, Options pause. Cross/Options press the focused button on menus between rounds. Feeds the same input as the keyboard, so auto-repeat and the "held over from last capsule" rules match.
+- Rumble (`src/input/rumble.ts`): lock tick, clears (stronger per chain step), garbage warning, garbage landing thump, round win/loss. Toggle button (🎮 Rumble) appears when a controller is connected. Uses the browser's `dual-rumble` effect where supported (Chrome/Edge); Firefox has no rumble.
+
 ## Audio
 - Sound effects with **ZzFX** and music with **ZzFXM**, both MIT, vendored in `src/audio/` (no npm packages, no audio files). Sound definitions and the test tune are in `src/audio/sounds.ts`.
 - Background music added (the spec originally said none). The current tune is a placeholder; a BeepBox export can replace it later.

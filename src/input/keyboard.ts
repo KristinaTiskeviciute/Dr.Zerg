@@ -111,11 +111,9 @@ export class KeyboardInput {
     return out;
   }
 
-  private onKeyDown(e: KeyboardEvent): void {
-    const action = this.codeToAction.get(e.code);
-    if (!action || !this.enabled) return;
-    e.preventDefault();
-    if (e.repeat) return;
+  /** An action's button went down (keyboard or controller). */
+  press(action: Action): void {
+    if (!this.enabled) return;
     this.held.add(action);
     this.pressed.add(action);
     this.blocked.delete(action);
@@ -125,11 +123,23 @@ export class KeyboardInput {
     }
   }
 
+  /** An action's button came up. */
+  release(action: Action): void {
+    this.held.delete(action);
+    this.blocked.delete(action);
+  }
+
+  private onKeyDown(e: KeyboardEvent): void {
+    const action = this.codeToAction.get(e.code);
+    if (!action || !this.enabled) return;
+    e.preventDefault();
+    if (!e.repeat) this.press(action);
+  }
+
   private onKeyUp(e: KeyboardEvent): void {
     const action = this.codeToAction.get(e.code);
     if (!action || !this.enabled) return;
     e.preventDefault(); // also stops Space from "clicking" a focused button on release
-    this.held.delete(action);
-    this.blocked.delete(action);
+    this.release(action);
   }
 }

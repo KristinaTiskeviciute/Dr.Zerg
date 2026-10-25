@@ -12,6 +12,7 @@
   </head>
   <body>
     <div class="audio-toggles">
+      <button type="button" id="toggle-rumble" class="hidden" title="Controller rumble on/off"></button>
       <button type="button" id="toggle-music" title="Music on/off"></button>
       <button type="button" id="toggle-mute" title="Mute all sound (M)"></button>
     </div>
@@ -92,6 +93,9 @@
         </div>
         <p class="controls">
           <kbd>←</kbd><kbd>→</kbd> move · <kbd>↑</kbd><kbd>X</kbd> rotate ↻ · <kbd>Z</kbd> rotate ↺ · <kbd>↓</kbd> drop · <kbd>P</kbd> pause · <kbd>M</kbd> mute
+        </p>
+        <p class="controls hidden" id="pad-hint">
+          🎮 Controller: <kbd>◯</kbd> rotate ↻ · <kbd>✕</kbd> rotate ↺ · <kbd>D-pad</kbd> / stick move, <kbd>↓</kbd> drop · <kbd>Options</kbd> pause
         </p>
       </section>
 

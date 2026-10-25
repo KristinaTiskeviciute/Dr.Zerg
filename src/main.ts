@@ -7,7 +7,9 @@ import { Game, GameEvent } from './core/game';
 import { Match } from './core/match';
 import { randomSeed } from './core/rng';
 import { COLORS } from './core/types';
+import { GamepadInput } from './input/gamepad';
 import { KeyboardInput } from './input/keyboard';
+import { Rumble } from './input/rumble';
 import { boardPixelSize, drawBoard, drawGerm } from './render/draw';
 import { BoardEffects } from './render/effects';
 import { gameView } from './render/view';
@@ -24,6 +26,33 @@ const oppCanvas = $<HTMLCanvasElement>('#board-opp');
 const oppCtx = oppCanvas.getContext('2d')!;
 const keyboard = new KeyboardInput();
 keyboard.attach();
+
+// --- Game controller (e.g. PS5): feeds the same input as the keyboard, plus rumble ---
+
+const pad = new GamepadInput(keyboard, {
+  onPause: () => togglePause(),
+  onConfirm: () => {
+    // Between rounds and on menus: press the focused button (overlays focus their main button).
+    if (running()) return false;
+    const el = document.activeElement;
+    if (el instanceof HTMLButtonElement && el.offsetParent !== null && !el.disabled) {
+      el.click();
+      return true;
+    }
+    return false;
+  },
+  onChange: () => renderPadUi(),
+});
+const rumble = new Rumble(pad);
+const rumbleButton = $<HTMLButtonElement>('#toggle-rumble');
+rumbleButton.addEventListener('click', () => { rumble.toggle(); renderPadUi(); rumbleButton.blur(); });
+function renderPadUi(): void {
+  const connected = pad.connected;
+  rumbleButton.classList.toggle('hidden', !connected);
+  rumbleButton.textContent = '🎮 Rumble';
+  rumbleButton.classList.toggle('off', !rumble.on);
+  $('#pad-hint').classList.toggle('hidden', !connected);
+}
 const youFx = new BoardEffects();
 const oppFx = new BoardEffects();
 
@@ -293,7 +322,7 @@ function onMatchMessage(msg: MatchMessage): void {
       if (msg.from === s.opponentId && !s.result) {
         s.game.receiveGarbage(msg.colors);
         youFx.markIncoming();
-        audio.play('warning', 0, 0);
+        audio.play('warning', 0, 0); rumble.warning();
       }
       break;
     case 'pause':
@@ -321,8 +350,10 @@ function onMatchMessage(msg: MatchMessage): void {
 function onOnlineRound(s: OnlineSession, r: RoundResult): void {
   s.result = r;
   audio.stopMusic();
-  if (r.winner === room.me) audio.jingle('win');
-  else if (r.winner) audio.jingle('lose');
+  if (r.winner) {
+    audio.jingle(r.winner === room.me ? 'win' : 'lose');
+    rumble.roundEnd(r.winner === room.me);
+  }
 
   const who = (id: string) => (id === room.me ? 'You' : s.opponentName);
   const why =
@@ -470,6 +501,7 @@ window.addEventListener('resize', () => { if (session) sizeCanvases(); });
 function handleYourEvents(events: GameEvent[]): void {
   for (const e of events) {
     playSound(e);
+    rumble.forEvent(e);
     if (e.type === 'spawn') keyboard.onNewCapsule();
   }
 }
@@ -495,6 +527,7 @@ function playSound(e: GameEvent): void {
 function onSoloOver(game: Game): void {
   audio.stopMusic();
   const lvl = game.level;
+  rumble.roundEnd(game.phase === 'won');
   if (game.phase === 'won') {
     audio.jingle('win');
     const buttons: [string, () => void][] = [];
@@ -516,8 +549,10 @@ function onRoundOver(match: Match): void {
     me.phase === 'lost' ? 'You topped out' :
     'The CPU cleared its bottle';
   const score = `You ${match.wins[0]} – ${match.wins[1]} CPU`;
-  if (match.roundWinner === 0) audio.jingle('win');
-  else if (match.roundWinner === 1) audio.jingle('lose');
+  if (match.roundWinner !== null) {
+    audio.jingle(match.roundWinner === 0 ? 'win' : 'lose');
+    rumble.roundEnd(match.roundWinner === 0);
+  }
 
   if (match.state === 'matchOver') {
     const title = match.matchWinner === 0 ? 'You win the match!' : 'The CPU wins';
@@ -558,7 +593,7 @@ window.addEventListener('keydown', e => {
     const n = 2 + Math.floor(Math.random() * 3);
     me.receiveGarbage(Array.from({ length: n }, () => COLORS[Math.floor(Math.random() * 3)]));
     youFx.markIncoming();
-    audio.play('warning', 0, 0);
+    audio.play('warning', 0, 0); rumble.warning();
   }
 });
 
@@ -647,7 +682,7 @@ function step(): void {
     // Warn the moment garbage is sent, not just when it starts falling.
     if (theirs.some(e => e.type === 'garbageOut')) {
       youFx.markIncoming();
-      audio.play('warning', 0, 0);
+      audio.play('warning', 0, 0); rumble.warning();
     }
     if (mine.some(e => e.type === 'garbageOut')) oppFx.markIncoming();
     if (match.state !== 'playing') onRoundOver(match);
@@ -665,6 +700,7 @@ function applyShake(c: HTMLCanvasElement, fx: BoardEffects, now: number): void {
 function frame(now: number): void {
   const dt = Math.min(now - lastTime, MAX_FRAME_MS);
   lastTime = now;
+  pad.poll();
 
   if (session?.kind === 'online') updateOnline(session, now);
   if (session?.kind === 'cpu') updateCpuCountdown(session, now);
