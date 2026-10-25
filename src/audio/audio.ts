@@ -23,6 +23,8 @@ class AudioManager {
   private musicSource: AudioBufferSourceNode | null = null;
   private wantMusic = false;
   private musicPaused = false;
+  /** Music speed (and pitch): rises as the game speeds up, back to 1 for each new round. */
+  private musicRate = 1;
   private listeners: (() => void)[] = [];
 
   constructor() {
@@ -67,8 +69,15 @@ class AudioManager {
   startMusic(): void {
     this.wantMusic = true;
     this.musicPaused = false;
+    this.musicRate = 1;
     this.stopMusicSource();
     this.startMusicSource();
+  }
+
+  /** Play the music faster (1 = normal). Glides there rather than jumping. */
+  setMusicRate(rate: number): void {
+    this.musicRate = rate;
+    if (this.ctx && this.musicSource) this.musicSource.playbackRate.setTargetAtTime(rate, this.ctx.currentTime, 0.3);
   }
 
   stopMusic(): void {
@@ -115,6 +124,7 @@ class AudioManager {
     const src = this.ctx.createBufferSource();
     src.buffer = this.renderSong();
     src.loop = true;
+    src.playbackRate.value = this.musicRate;
     src.connect(this.musicGain);
     src.start();
     this.musicSource = src;

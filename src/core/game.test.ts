@@ -178,6 +178,20 @@ describe('Game', () => {
     });
   });
 
+  it('speeds up every 10 capsules and says so', () => {
+    const g = game(b => b.set(15, 7, { kind: 'germ', color: B }));
+    const start = g.fallIntervalMs();
+    const ups: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      // Spread over four columns so the stacks don't top out.
+      g.active = { row: 0, col: [0, 2, 5, 7][i % 4], orientation: 1, colors: [i % 3, (i + 1) % 3] as [Color, Color] };
+      for (const e of [...dropCapsule(g), ...runUntilFalling(g)]) if (e.type === 'speedUp') ups.push(e.step);
+      if (g.isOver) break;
+    }
+    expect(ups.slice(0, 2)).toEqual([1, 2]);
+    expect(g.fallIntervalMs()).toBeLessThan(start * 0.9);
+  });
+
   it('a single clear sends no garbage', () => {
     expect(garbageForChain([R])).toEqual([]);
     expect(garbageForChain([R, Y])).toEqual([R, Y]);

@@ -50,6 +50,8 @@ export type GameEvent =
   | { type: 'move' }
   | { type: 'rotate' }
   | { type: 'lock'; cells: Pos[] }
+  /** Capsules now fall faster (every SPEEDUP_EVERY_N_CAPSULES). step = how many speed-ups so far. */
+  | { type: 'speedUp'; step: number }
   | { type: 'clear'; chain: number; lines: number; cells: Pos[]; germs: number }
   | { type: 'garbageOut'; colors: Color[] }
   | { type: 'garbageIn'; count: number }
@@ -125,9 +127,13 @@ export class Game {
     return this.garbageQueue.flat();
   }
 
+  /** How many times the fall speed has gone up this game. */
+  get speedStep(): number {
+    return Math.floor(this.pieceIndex / SPEEDUP_EVERY_N_CAPSULES);
+  }
+
   fallIntervalMs(): number {
-    const ramps = Math.floor(this.pieceIndex / SPEEDUP_EVERY_N_CAPSULES);
-    return Math.max(MIN_FALL_INTERVAL_MS, FALL_INTERVAL_MS[this.speed] * SPEEDUP_FACTOR ** ramps);
+    return Math.max(MIN_FALL_INTERVAL_MS, FALL_INTERVAL_MS[this.speed] * SPEEDUP_FACTOR ** this.speedStep);
   }
 
   /** Queue an opponent's attack. It drops after the current capsule locks and settles. */
@@ -254,8 +260,10 @@ export class Game {
   private lock(): void {
     const [a, b] = capsuleHalves(this.active!);
     this.active = null;
+    const intervalBefore = this.fallIntervalMs();
     this.pieceIndex++;
     this.emit({ type: 'lock', cells: [a.pos, b.pos] });
+    if (this.fallIntervalMs() < intervalBefore) this.emit({ type: 'speedUp', step: this.speedStep });
     const above = [a, b].filter(h => h.pos.row < 0);
     if (above.length === 2) return this.finish('lost');
     if (above.length === 1) {

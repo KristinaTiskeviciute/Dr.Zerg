@@ -21,7 +21,11 @@ export function germMaxRows(level: number): number {
 export type Speed = 'low' | 'med' | 'high';
 export const FALL_INTERVAL_MS: Record<Speed, number> = { low: 800, med: 500, high: 300 };
 export const SPEEDUP_EVERY_N_CAPSULES = 10;
-export const SPEEDUP_FACTOR = 0.95; // fall interval is multiplied by this at every speed-up
+export const SPEEDUP_FACTOR = 0.92; // fall interval is multiplied by this at every speed-up
+export const MUSIC_SPEEDUP_PER_STEP = 0.05; // music plays this much faster per speed-up step…
+export const MUSIC_MAX_RATE = 1.5; // …up to this
+export const ENDGAME_GERMS = 3; // at this many germs or fewer (on any board in a match), the music gets urgent
+export const ENDGAME_MUSIC_BOOST = 0.2; // extra music speed in the endgame
 export const MIN_FALL_INTERVAL_MS = 80; // speed-up cap
 export const SOFT_DROP_MULTIPLIER = 10;
 

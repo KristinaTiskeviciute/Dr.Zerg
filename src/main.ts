@@ -1,6 +1,7 @@
 import { audio } from './audio/audio';
 import {
-  BOARD_SNAPSHOT_HZ, CPU_SKILLS, MAX_FRAME_MS, MAX_LEVEL, OPPONENT_BOARD_SCALE, ROUNDS_TO_WIN, SIM_STEP_MS,
+  BOARD_SNAPSHOT_HZ, CPU_SKILLS, ENDGAME_GERMS, ENDGAME_MUSIC_BOOST, MAX_FRAME_MS, MAX_LEVEL, MUSIC_MAX_RATE,
+  MUSIC_SPEEDUP_PER_STEP, OPPONENT_BOARD_SCALE, ROUNDS_TO_WIN, SIM_STEP_MS,
 } from './config';
 import { CpuController } from './core/ai';
 import { Game, GameEvent } from './core/game';
@@ -249,6 +250,7 @@ function enterPlay(): void {
   const me = you();
   $('#hud-level').textContent = String(me?.level ?? settings.level);
   $('#hud-speed').textContent = SPEED_LABEL[me?.speed ?? settings.speed];
+  lastMusicRate = 1; // startMusic() above reset the tempo
   sizeCanvases();
 }
 
@@ -466,6 +468,8 @@ function nextRound(): void {
   oppFx.reset();
   keyboard.reset();
   audio.startMusic();
+  lastMusicRate = 1;
+  $('#hud-speed').textContent = SPEED_LABEL[settings.speed];
   overlayKey = '';
   hideOverlay();
 }
@@ -510,6 +514,39 @@ function handleYourEvents(events: GameEvent[]): void {
     playSound(e);
     rumble.forEvent(e);
     if (e.type === 'spawn') keyboard.onNewCapsule();
+    if (e.type === 'speedUp') {
+      audio.jingle('speedUp');
+      flashSpeed(e.step);
+    }
+  }
+}
+
+/** The Speed label flashes and shows how many speed-ups so far ("Med ▲2"). */
+function flashSpeed(step: number): void {
+  const me = you();
+  const el = $('#hud-speed');
+  el.textContent = `${SPEED_LABEL[me?.speed ?? settings.speed]} ▲${step}`;
+  el.classList.remove('flash');
+  void el.offsetWidth; // restart the animation
+  el.classList.add('flash');
+}
+
+/**
+ * Music tempo follows the game: a bit faster with every speed-up, and an extra push once any
+ * board in play is down to its last few germs. Called every frame; only changes when needed.
+ */
+let lastMusicRate = 1;
+function updateMusicRate(): void {
+  const me = you();
+  if (!me || !session) return;
+  const others =
+    session.kind === 'cpu' ? [session.match.games[1].germsLeft] :
+    session.kind === 'online' && session.opp.snap ? [session.opp.snap.g] : [];
+  const endgame = [me.germsLeft, ...others].some(g => g > 0 && g <= ENDGAME_GERMS);
+  const rate = Math.min(MUSIC_MAX_RATE, 1 + MUSIC_SPEEDUP_PER_STEP * me.speedStep) + (endgame ? ENDGAME_MUSIC_BOOST : 0);
+  if (Math.abs(rate - lastMusicRate) > 0.001) {
+    lastMusicRate = rate;
+    audio.setMusicRate(rate);
   }
 }
 
@@ -708,6 +745,7 @@ function frame(now: number): void {
   const dt = Math.min(now - lastTime, MAX_FRAME_MS);
   lastTime = now;
   pad.poll();
+  if (session) updateMusicRate();
 
   if (session?.kind === 'online') updateOnline(session, now);
   if (session?.kind === 'cpu') updateCpuCountdown(session, now);

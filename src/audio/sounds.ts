@@ -25,6 +25,7 @@ export type SfxName = keyof typeof SFX;
 export const JINGLES = {
   win: ['tone', [0, 4, 7, 12, 7, 12, 16], .09],
   lose: ['toneLow', [0, -3, -6, -9, -12], .16],
+  speedUp: ['tone', [7, 12, 19], .05], // quick rising chime when capsules start falling faster
 } as const satisfies Record<string, readonly [SfxName, readonly number[], number]>;
 
 // --- Test tune: an original, upbeat C–Am–F–G loop. Rows are 16th notes; 0 = no new note. ---

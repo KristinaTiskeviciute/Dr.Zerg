@@ -10,7 +10,8 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - **Garbage-caused clears** don't send garbage back.
 - **Separate random streams:** germs, capsules and garbage columns each get their own seeded RNG (`deriveSeed`). Receiving garbage never changes your capsule sequence.
 - **Soft drop on the ground locks immediately.** Otherwise a landed capsule locks after `LOCK_DELAY_MS`.
-- **Speed ramp** is capped at `MIN_FALL_INTERVAL_MS`.
+- **Speed ramp:** 8% faster every 10 capsules (`SPEEDUP_FACTOR` 0.92), capped at `MIN_FALL_INTERVAL_MS`, reset each round. Each step plays a rising chime and the Speed label flashes "Med ▲N".
+- **Music tempo** follows: +5% per speed-up (max 1.5×), plus an extra +0.2 once any board in play is down to 3 germs or fewer — an approximation of the original's endgame music change.
 - **Feel, from the NES data** (drmar.io wiki): sideways auto-repeat 267 ms then every 100 ms (was 170/50 — too twitchy). NES capsule fall starts faster than ours (Low 0.67 s, Med 0.33 s, Hi 0.23 s per row); kept ours slower for now. NES garbage falls at 4 frames/row; ours is deliberately slower by request (220 ms/row; loose halves 200 ms/row).
 - **Pause between capsules:** a new capsule spawns at once and is controllable, but hangs at the top for `ENTRY_DELAY_MS` (350 ms) before gravity starts; soft drop skips the hang. (Tried first: a flying toss from the preview — stressful; then a pause where the capsule was visible but not controllable — swallowed early rotations. Both removed.)
 - **Rotating in the top row** works: the row above the bottle (the neck) counts as free space for a falling capsule.
