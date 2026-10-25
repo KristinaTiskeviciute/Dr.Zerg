@@ -53,6 +53,13 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - Opponent disconnects → "Opponent disconnected (15 s)"; back in time → 3 s countdown; not back → they lose the match and their seat is freed.
 - Rejoining a room mid-round with no game in the tab (reload) → that round is forfeited; you play from the next round.
 
+## 3–4 players (Vs CPU)
+- Menu: Vs CPU → Opponents 1 / 2 / 3. CPUs are named Spike, Buzz, Peep (just "CPU" when there's one). All CPUs share the CPU level/speed/skill settings.
+- `Match` handles 2–4 players. Garbage targeting (Dr. Mario 64): the colors of a chain's first clear pick targets — blue → next player in seating order, yellow → two over, red → three over, wrapping and skipping players who are out; two colors in the first clear hit two players. With 2 players it always goes to the other.
+- Topping out knocks you out of the round (board greyed with OUT). The round goes to whoever clears first, or the last one standing; simultaneous clears or everyone out at once = draw. First to 3 round wins.
+- Layout: one opponent at full size; two at 0.6×, three at 0.5×, side by side. Side panel lists every player's stars and germs.
+- Next: online rooms for 3–4 players (server seats, lobby, snapshots from several boards, targeting on the server or by the sender).
+
 ## Visuals
 - Pixel-art style: 16×16 sprites defined as text grids in `src/render/sprites.ts`, drawn on a small canvas and scaled up with pixelated rendering. Germs: red Spike (horns), yellow Buzz (antenna), blue Peep (three eyes).
 - Font: Press Start 2P (SIL Open Font License), loaded from Google Fonts. Falls back to monospace offline.

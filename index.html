@@ -46,6 +46,14 @@
             <div class="col cpu-only">
               <h3>CPU</h3>
               <div class="field">
+                <span class="label">Opponents</span>
+                <div class="seg" id="cpu-count">
+                  <button type="button" data-value="1">1</button>
+                  <button type="button" data-value="2">2</button>
+                  <button type="button" data-value="3">3</button>
+                </div>
+              </div>
+              <div class="field">
                 <label for="cpu-level">Level <output id="cpu-level-out">5</output></label>
                 <input type="range" id="cpu-level" min="0" max="20" value="5" />
               </div>
@@ -156,27 +164,20 @@
         <aside class="hud">
           <div class="match-only">
             <span class="label">Rounds</span>
-            <div class="pips-row"><span class="pips" id="pips-you"></span>You</div>
-            <div class="pips-row"><span class="pips" id="pips-opp"></span><span id="pips-opp-name">CPU</span></div>
+            <div id="hud-rounds" class="hud-rounds"></div>
           </div>
           <div><span class="label">Level</span><strong id="hud-level">0</strong></div>
           <div><span class="label">Speed</span><strong id="hud-speed">Med</strong></div>
           <div>
             <span class="label">Germs</span>
-            <div class="germ-counts">
-              <div><strong id="hud-germs">0</strong><span class="who match-only">You</span></div>
-              <div class="match-only"><strong id="hud-opp-germs">0</strong><span class="who" id="hud-opp-germs-label">CPU</span></div>
-            </div>
+            <div class="germ-counts" id="hud-germ-list"></div>
           </div>
           <div class="match-only fast-flag" id="hud-fast">Fast garbage: ON</div>
           <p class="controls small">
             <kbd>←</kbd><kbd>→</kbd> move<br /><kbd>↑</kbd><kbd>X</kbd> rotate ↻<br /><kbd>Z</kbd> rotate ↺<br /><kbd>↓</kbd> drop<br /><kbd>P</kbd> pause
           </p>
         </aside>
-        <div class="opponent match-only">
-          <span class="label" id="opp-label">CPU</span>
-          <canvas id="board-opp"></canvas>
-        </div>
+        <div class="opponents match-only" id="opponents"></div>
       </section>
     </main>
     <script type="module" src="/src/main.ts"></script>

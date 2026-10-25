@@ -1,7 +1,7 @@
 import { audio } from './audio/audio';
 import {
   BOARD_SNAPSHOT_HZ, CPU_SKILLS, ENDGAME_GERMS, ENDGAME_MUSIC_BOOST, MAX_FRAME_MS, MAX_LEVEL, MUSIC_MAX_RATE,
-  MUSIC_SPEEDUP_PER_STEP, OPPONENT_BOARD_SCALE, ROUNDS_TO_WIN, SIM_STEP_MS,
+  MUSIC_SPEEDUP_PER_STEP, OPPONENT_BOARD_SCALE, SIM_STEP_MS,
 } from './config';
 import { CpuController } from './core/ai';
 import { Game, GameEvent } from './core/game';
@@ -19,12 +19,14 @@ import {
 } from './net/protocol';
 import { encodeSnapshot, snapshotView } from './net/snapshot';
 import { $, loadSettings, saveSettings, Settings, SKILL_LABEL, SPEED_LABEL } from './ui/dom';
+import { PlayersHud } from './ui/hud';
 import { MatchMessage, OnlineRoom } from './ui/lobby';
+import { OpponentBoards } from './ui/opponents';
 
 const canvas = $<HTMLCanvasElement>('#board');
 const ctx = canvas.getContext('2d')!;
-const oppCanvas = $<HTMLCanvasElement>('#board-opp');
-const oppCtx = oppCanvas.getContext('2d')!;
+const opponents = new OpponentBoards($('#opponents'));
+const hud = new PlayersHud($('#hud-rounds'), $('#hud-germ-list'));
 const keyboard = new KeyboardInput();
 keyboard.attach();
 
@@ -55,13 +57,12 @@ function renderPadUi(): void {
   $('#pad-hint').classList.toggle('hidden', !connected);
 }
 const youFx = new BoardEffects();
-const oppFx = new BoardEffects();
 
 /** What's being played right now. */
 type Session =
   | { kind: 'solo'; game: Game }
   // startAt = end of the 3-2-1 countdown before each round.
-  | { kind: 'cpu'; match: Match; cpu: CpuController; startAt: number }
+  | { kind: 'cpu'; match: Match; cpus: CpuController[]; startAt: number }
   | OnlineSession;
 
 /** An online round: your board runs here; the opponent's arrives as snapshots. */
@@ -191,6 +192,7 @@ const menuRenderers = [
   bindSeg('speed', 'speed', v => v as Settings['speed'], v => v),
   bindSeg('cpu-speed', 'cpuSpeed', v => v as Settings['cpuSpeed'], v => v),
   bindSeg('cpu-skill', 'cpuSkill', v => v as Settings['cpuSkill'], v => v),
+  bindSeg('cpu-count', 'cpuCount', v => Number(v), v => String(v)),
   bindSeg('fast-garbage', 'fastGarbage', v => v === 'on', v => (v ? 'on' : 'off')),
   bindLevel('level', 'level'),
   bindLevel('cpu-level', 'cpuLevel'),
@@ -237,7 +239,7 @@ function enterPlay(): void {
   paused = false;
   acc = 0;
   youFx.reset();
-  oppFx.reset();
+  opponents.reset();
   keyboard.reset();
   keyboard.enabled = true;
   audio.startMusic();
@@ -258,32 +260,40 @@ function startSolo(level: number): void {
   settings.level = level;
   saveSettings(settings);
   session = { kind: 'solo', game: new Game({ level, speed: settings.speed, seed: randomSeed(), playerSalt: 'solo' }) };
+  setupPlayers(['You'], []);
   enterPlay();
 }
 
+/** CPU opponents are named after the germs. */
+const CPU_NAMES = ['Spike', 'Buzz', 'Peep'];
+
+function newCpus(count: number): CpuController[] {
+  return Array.from({ length: count }, () => new CpuController(CPU_SKILLS[settings.cpuSkill], randomSeed()));
+}
+
 function startCpuMatch(): void {
+  const count = settings.cpuCount;
   const match = new Match({
     players: [
       { level: settings.level, speed: settings.speed },
-      { level: settings.cpuLevel, speed: settings.cpuSpeed },
+      ...Array.from({ length: count }, () => ({ level: settings.cpuLevel, speed: settings.cpuSpeed })),
     ],
     seed: randomSeed(),
     fastGarbage: settings.fastGarbage,
   });
-  session = {
-    kind: 'cpu', match, cpu: new CpuController(CPU_SKILLS[settings.cpuSkill], randomSeed()),
-    startAt: performance.now() + START_COUNTDOWN_MS,
-  };
+  session = { kind: 'cpu', match, cpus: newCpus(count), startAt: performance.now() + START_COUNTDOWN_MS };
   overlayKey = '';
-  setOpponentLabels('CPU', `CPU · ${SKILL_LABEL[settings.cpuSkill]} · Lv ${settings.cpuLevel}`);
+  const names = count === 1 ? ['CPU'] : CPU_NAMES.slice(0, count);
+  const detail = `${SKILL_LABEL[settings.cpuSkill]} · Lv ${settings.cpuLevel}`;
+  setupPlayers(['You', ...names], names.map(n => (count === 1 ? `CPU · ${detail}` : `${n} · ${detail}`)));
   $('#hud-fast').classList.toggle('hidden', !settings.fastGarbage);
   enterPlay();
 }
 
-function setOpponentLabels(name: string, boardLabel: string): void {
-  $('#pips-opp-name').textContent = name;
-  $('#hud-opp-germs-label').textContent = name;
-  $('#opp-label').textContent = boardLabel;
+/** Side panel rows (you first) and one labelled bottle per opponent. */
+function setupPlayers(names: string[], boardLabels: string[]): void {
+  hud.setPlayers(names);
+  opponents.setup(boardLabels);
 }
 
 /** A round starts (the first from the lobby, later ones automatically): your board on the shared seed. */
@@ -306,7 +316,7 @@ function startOnline(info: StartInfo): void {
     resultSent: false,
     lastSent: { json: '', at: 0 },
   };
-  setOpponentLabels(opp.name, `${opp.name} · Lv ${opp.level} · ${SPEED_LABEL[opp.speed]}`);
+  setupPlayers(['You', opp.name], [`${opp.name} · Lv ${opp.level} · ${SPEED_LABEL[opp.speed]}`]);
   $('#hud-fast').classList.toggle('hidden', !info.settings.fastGarbage);
   overlayKey = '';
   enterPlay();
@@ -460,12 +470,12 @@ function setOverlayState(key: string, title: string, sub: string, buttons: [stri
 function nextRound(): void {
   if (session?.kind !== 'cpu') return;
   session.match.nextRound();
-  session.cpu = new CpuController(CPU_SKILLS[settings.cpuSkill], randomSeed());
+  session.cpus = newCpus(session.cpus.length);
   session.startAt = performance.now() + START_COUNTDOWN_MS;
   paused = false;
   acc = 0;
   youFx.reset();
-  oppFx.reset();
+  opponents.reset();
   keyboard.reset();
   audio.startMusic();
   lastMusicRate = 1;
@@ -478,32 +488,36 @@ function nextRound(): void {
 function updateCpuCountdown(s: Extract<Session, { kind: 'cpu' }>, now: number): void {
   if (s.match.state !== 'playing' || paused) return;
   if (now < s.startAt) {
-    setOverlayState('countdown', String(Math.ceil((s.startAt - now) / 1000)), s.match.round > 1 ? `Round ${s.match.round}` : 'vs CPU', []);
+    const vs = s.cpus.length === 1 ? 'vs CPU' : `vs ${s.cpus.length} CPUs`;
+    setOverlayState('countdown', String(Math.ceil((s.startAt - now) / 1000)), s.match.round > 1 ? `Round ${s.match.round}` : vs, []);
   } else if (overlayKey === 'countdown') {
     overlayKey = '';
     hideOverlay();
   }
 }
 
-/** Scale your board to fill the window height, leaving room for the HUD (and the CPU's board). */
+/**
+ * Scale your board to fill the window height, leaving room for the HUD and the opponents'
+ * bottles (full size against one opponent, smaller against two or three).
+ */
 function sizeCanvases(): void {
   const { width, height } = boardPixelSize(8, 16);
-  const vs = session?.kind === 'cpu' || session?.kind === 'online';
+  const n = opponents.count;
+  const oppScale = n <= 1 ? OPPONENT_BOARD_SCALE : n === 2 ? 0.6 : 0.5;
   const narrow = window.innerWidth <= 520;
-  const availW = window.innerWidth - (narrow ? 32 : 260) - (vs ? 40 : 0);
-  // Leave room for the page padding, and in versus for the opponent's name above their bottle.
-  const availH = window.innerHeight - (narrow ? 120 : 56) - (vs ? 32 : 0);
+  const availW = window.innerWidth - (narrow ? 32 : 260) - n * 32;
+  // Leave room for the page padding, and in versus for the opponents' names under their bottles.
+  const availH = window.innerHeight - (narrow ? 120 : 56) - (n ? 32 : 0);
   // The canvases stay at sprite resolution; CSS scales them up with crisp (pixelated) edges.
   // Whole-number scales keep every pixel the same size, so prefer one when it's close.
-  const fit = Math.max(1, Math.min(availW / (width * (vs ? 1 + OPPONENT_BOARD_SCALE : 1)), availH / height));
+  const fit = Math.max(1, Math.min(availW / (width * (1 + n * oppScale)), availH / height));
   const scale = fit - Math.floor(fit) < 0.35 ? Math.floor(fit) : fit;
-  for (const [c, cx, s] of [[canvas, ctx, scale], [oppCanvas, oppCtx, scale * OPPONENT_BOARD_SCALE]] as const) {
-    c.width = width;
-    c.height = height;
-    c.style.width = `${Math.round(width * s)}px`;
-    c.style.height = `${Math.round(height * s)}px`;
-    cx.imageSmoothingEnabled = false;
-  }
+  canvas.width = width;
+  canvas.height = height;
+  canvas.style.width = `${Math.round(width * scale)}px`;
+  canvas.style.height = `${Math.round(height * scale)}px`;
+  ctx.imageSmoothingEnabled = false;
+  opponents.size(scale * oppScale);
 }
 window.addEventListener('resize', () => { if (session) sizeCanvases(); });
 
@@ -540,7 +554,7 @@ function updateMusicRate(): void {
   const me = you();
   if (!me || !session) return;
   const others =
-    session.kind === 'cpu' ? [session.match.games[1].germsLeft] :
+    session.kind === 'cpu' ? session.match.games.slice(1).filter(g => g.phase !== 'lost').map(g => g.germsLeft) :
     session.kind === 'online' && session.opp.snap ? [session.opp.snap.g] : [];
   const endgame = [me.germsLeft, ...others].some(g => g > 0 && g <= ENDGAME_GERMS);
   const rate = Math.min(MUSIC_MAX_RATE, 1 + MUSIC_SPEEDUP_PER_STEP * me.speedStep) + (endgame ? ENDGAME_MUSIC_BOOST : 0);
@@ -586,27 +600,34 @@ function onSoloOver(game: Game): void {
 
 function onRoundOver(match: Match): void {
   audio.stopMusic();
-  const [me, cpu] = match.games;
+  const names = hud.playerNames;
+  const n = match.playerCount;
+  /** "You", "The CPU" (one opponent) or the CPU's name. */
+  const who = (i: number) => (i === 0 ? 'You' : n === 2 ? 'The CPU' : names[i]);
+  const w = match.roundWinner;
   const why =
-    me.phase === 'won' ? 'You cleared your bottle' :
-    cpu.phase === 'lost' ? 'The CPU topped out' :
-    me.phase === 'lost' ? 'You topped out' :
-    'The CPU cleared its bottle';
-  const score = `You ${match.wins[0]} – ${match.wins[1]} CPU`;
-  if (match.roundWinner !== null) {
-    audio.jingle(match.roundWinner === 0 ? 'win' : 'lose');
-    rumble.roundEnd(match.roundWinner === 0);
+    w === null ? 'Nobody made it' :
+    match.games[w].phase === 'won' ? `${who(w)} cleared ${w === 0 ? 'your' : n === 2 ? 'its' : 'their'} bottle` :
+    n === 2 ? `${who(1 - w)} topped out` :
+    w === 0 ? "You're the last one standing" : `${who(w)} is the last one standing`;
+  const score = n === 2
+    ? `You ${match.wins[0]} – ${match.wins[1]} CPU`
+    : names.map((name, i) => `${name} ${match.wins[i]}`).join(' · ');
+  if (w !== null) {
+    audio.jingle(w === 0 ? 'win' : 'lose');
+    rumble.roundEnd(w === 0);
   }
 
   if (match.state === 'matchOver') {
-    const title = match.matchWinner === 0 ? 'You win the match!' : 'The CPU wins';
+    const mw = match.matchWinner!;
+    const title = mw === 0 ? 'You win the match!' : `${who(mw)} wins the match`;
     showOverlay(title, `${why}. ${score}`, [['Play again', startCpuMatch], ['Menu', showMenu]]);
   } else {
     const title =
-      match.roundWinner === 0 ? `You take round ${match.round}` :
-      match.roundWinner === 1 ? `CPU takes round ${match.round}` :
-      'Draw!';
-    showOverlay(title, match.roundWinner === null ? score : `${why}. ${score}`, [['Next round', nextRound], ['Menu', showMenu]]);
+      w === null ? 'Draw!' :
+      w === 0 ? `You take round ${match.round}` :
+      `${n === 2 ? 'CPU' : names[w]} takes round ${match.round}`;
+    showOverlay(title, w === null ? score : `${why}. ${score}`, [['Next round', nextRound], ['Menu', showMenu]]);
   }
 }
 
@@ -686,17 +707,6 @@ function setText(id: string, text: string): void {
   if (el.textContent !== text) el.textContent = text;
 }
 
-function renderPips(id: string, wins: number): void {
-  const el = $(id);
-  if (el.childElementCount === ROUNDS_TO_WIN && el.dataset.wins === String(wins)) return;
-  el.dataset.wins = String(wins);
-  el.replaceChildren(...Array.from({ length: ROUNDS_TO_WIN }, (_, i) => {
-    const pip = document.createElement('span');
-    pip.className = i < wins ? 'pip on' : 'pip';
-    return pip;
-  }));
-}
-
 // --- Loop: fixed-step simulation on the real clock, render every frame ---
 
 function step(): void {
@@ -712,24 +722,45 @@ function step(): void {
       for (const e of events) {
         if (e.type === 'garbageOut') {
           room.send({ t: 'garbage', colors: e.colors });
-          oppFx.markIncoming();
+          opponents.fx(0).markIncoming();
         }
       }
     }
     if (g.isOver) (session.kind === 'solo' ? onSoloOver : onOnlineOver)(g);
   } else {
-    const { match, cpu } = session;
-    const [mine, theirs] = match.step(SIM_STEP_MS, [input, cpu.poll(match.games[1], SIM_STEP_MS)]);
-    handleYourEvents(mine);
-    youFx.onEvents(mine);
-    oppFx.onEvents(theirs);
-    // Warn the moment garbage is sent, not just when it starts falling.
-    if (theirs.some(e => e.type === 'garbageOut')) {
-      youFx.markIncoming();
-      audio.play('warning', 0, 0); rumble.warning();
+    const { match, cpus } = session;
+    const inputs = [input, ...cpus.map((cpu, k) => cpu.poll(match.games[k + 1], SIM_STEP_MS))];
+    const events = match.step(SIM_STEP_MS, inputs);
+    handleYourEvents(events[0]);
+    youFx.onEvents(events[0]);
+    events.slice(1).forEach((list, k) => opponents.fx(k).onEvents(list));
+    // Warn the moment garbage is sent your way, not just when it starts falling.
+    for (const d of match.deliveries) {
+      if (d.to === 0) {
+        youFx.markIncoming();
+        audio.play('warning', 0, 0); rumble.warning();
+      } else {
+        opponents.fx(d.to - 1).markIncoming();
+      }
     }
-    if (mine.some(e => e.type === 'garbageOut')) oppFx.markIncoming();
     if (match.state !== 'playing') onRoundOver(match);
+  }
+}
+
+/** Side panel: everyone's round stars and germ counts. */
+function updateHud(): void {
+  if (!session) return;
+  if (session.kind === 'solo') {
+    hud.update([{ wins: 0, germs: session.game.germsLeft, out: false }]);
+  } else if (session.kind === 'cpu') {
+    const m = session.match;
+    hud.update(m.games.map((g, i) => ({ wins: m.wins[i], germs: g.germsLeft, out: !m.isAlive(i) })));
+  } else {
+    const wins = session.result?.wins ?? session.info.wins;
+    hud.update([
+      { wins: wins[room.me] ?? 0, germs: session.game.germsLeft, out: false },
+      { wins: wins[session.opponentId] ?? 0, germs: session.opp.snap?.g ?? null, out: false },
+    ]);
   }
 }
 
@@ -763,32 +794,23 @@ function frame(now: number): void {
   if (session && me) {
     if (!paused) {
       youFx.update(dt);
-      oppFx.update(dt);
+      opponents.update(dt);
     }
     // Boards are hidden while paused, so nobody can plan ahead during a pause.
     const hidden = paused || (session.kind === 'online' && session.pausedBy !== null);
     applyShake(canvas, youFx, now);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!hidden) drawBoard(ctx, gameView(me, youFx), 0, 0, now);
-    setText('#hud-germs', String(me.germsLeft));
+    $('#play').classList.toggle('you-out', session.kind === 'cpu' && !session.match.isAlive(0));
     if (session.kind === 'online') {
       const snap = session.opp.snap;
-      oppCtx.clearRect(0, 0, oppCanvas.width, oppCanvas.height);
-      if (snap && !hidden) drawBoard(oppCtx, snapshotView(snap, oppFx.incomingFresh), 0, 0, now);
-      setText('#hud-opp-germs', snap ? String(snap.g) : '–');
-      const wins = session.result?.wins ?? session.info.wins;
-      renderPips('#pips-you', wins[room.me] ?? 0);
-      renderPips('#pips-opp', wins[session.opponentId] ?? 0);
+      opponents.draw(0, snap && !hidden ? snapshotView(snap, opponents.fx(0).incomingFresh) : null, now, false);
     }
     if (session.kind === 'cpu') {
-      const opp = session.match.games[1];
-      applyShake(oppCanvas, oppFx, now);
-      oppCtx.clearRect(0, 0, oppCanvas.width, oppCanvas.height);
-      if (!paused) drawBoard(oppCtx, gameView(opp, oppFx), 0, 0, now);
-      setText('#hud-opp-germs', String(opp.germsLeft));
-      renderPips('#pips-you', session.match.wins[0]);
-      renderPips('#pips-opp', session.match.wins[1]);
+      const m = session.match;
+      m.games.slice(1).forEach((g, k) => opponents.draw(k, hidden ? null : gameView(g, opponents.fx(k)), now, !m.isAlive(k + 1)));
     }
+    updateHud();
   }
   requestAnimationFrame(frame);
 }
@@ -813,6 +835,7 @@ if (linkedRoom) {
 if (import.meta.env.DEV && params.has('play')) startSolo(Math.min(MAX_LEVEL, Number(params.get('play')) || 0));
 if (import.meta.env.DEV && params.has('cpu')) {
   settings.level = Math.min(MAX_LEVEL, Number(params.get('cpu')) || 0);
+  if (params.has('cpus')) settings.cpuCount = Math.min(3, Math.max(1, Number(params.get('cpus')) || 1)); // ?cpu=5&cpus=3
   startCpuMatch();
 }
 // ?garbage=6 queues that many garbage pieces on your board at the start (to see the incoming preview).

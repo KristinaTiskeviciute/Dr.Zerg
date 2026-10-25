@@ -132,7 +132,9 @@ button:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
 button.on#ready-btn { background: #2f8f4e; color: var(--text); }
 #play:not(.vs) .vs-only { display: none !important; }
 #play:not(.vs):not(.online) .match-only { display: none !important; }
-#pips-opp-name { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hud-rounds { display: flex; flex-direction: column; gap: 8px; }
+.hud-rounds .who-name { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hud-rounds .out .who-name { opacity: 0.45; text-decoration: line-through; }
 #menu.cpu .panel { width: min(600px, calc(100% - 16px)); }
 
 .seg-mode button { font-size: 12px; padding: 14px 10px 12px; }
@@ -207,10 +209,12 @@ canvas { display: block; image-rendering: pixelated; }
   0%, 22%, 44%, 66% { color: var(--yellow); }
   11%, 33%, 55%, 77%, 100% { color: var(--text); }
 }
-.hud .germ-counts { display: flex; flex-direction: row; gap: 22px; }
+.hud .germ-counts { display: flex; flex-direction: row; flex-wrap: wrap; gap: 14px 22px; max-width: 170px; }
 .hud .germ-counts > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.hud .germ-counts .who { font-size: 8px; color: var(--muted); max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#hud-opp-germs { color: #ff8e7a; }
+.hud .germ-counts .who { font-size: 8px; color: var(--muted); max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hud .germ-counts strong { color: #ff8e7a; }
+.hud .germ-counts .mine strong { color: var(--yellow); }
+.hud .germ-counts .out { opacity: 0.4; }
 
 .pips-row { display: flex; flex-direction: row !important; align-items: center; gap: 10px; font-size: 10px; }
 .pips { display: inline-flex; gap: 6px; }
@@ -224,19 +228,38 @@ canvas { display: block; image-rendering: pixelated; }
 .pip.on { background: var(--yellow); }
 .fast-flag { font-size: 9px; color: var(--yellow); line-height: 1.8; }
 
-/* Opponent's bottle lines up with yours; their name sits just below it. */
-.opponent { position: relative; align-self: center; }
+/* Opponents' bottles line up with yours; each name sits just below its bottle. */
+.opponents { display: flex; align-items: center; gap: 32px; align-self: center; }
+.opponent { position: relative; }
 .opponent .label {
   position: absolute;
   top: 100%;
-  left: 0;
-  right: 0;
+  left: -12px;
+  right: -12px;
   margin-top: 10px;
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.opponents.many .opponent .label { font-size: 8px; }
+
+/* Knocked out of the round: greyed out with an OUT stamp. */
+.opponent.out canvas, #play.you-out #board { filter: grayscale(1) brightness(0.55); }
+.opponent.out::after, #play.you-out .stage::after {
+  content: 'OUT';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: #ff8e7a;
+  text-shadow: 3px 3px 0 var(--edge);
+  pointer-events: none;
+}
+#play.you-out .stage::after { font-size: 32px; z-index: 1; }
+.stage .overlay { z-index: 2; }
 
 .overlay {
   position: absolute;

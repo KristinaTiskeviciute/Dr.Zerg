@@ -53,7 +53,8 @@ export type GameEvent =
   /** Capsules now fall faster (every SPEEDUP_EVERY_N_CAPSULES). step = how many speed-ups so far. */
   | { type: 'speedUp'; step: number }
   | { type: 'clear'; chain: number; lines: number; cells: Pos[]; germs: number }
-  | { type: 'garbageOut'; colors: Color[] }
+  /** colors = the garbage pieces; firstColors = the colors of the chain's first clear (they pick targets with 3–4 players). */
+  | { type: 'garbageOut'; colors: Color[]; firstColors: Color[] }
   | { type: 'garbageIn'; count: number }
   | { type: 'garbageLanded' }
   | { type: 'won' }
@@ -86,6 +87,7 @@ export class Game {
   private phaseTimer = 0;
   private chainStep = 0;
   private chainLineColors: Color[] = [];
+  private chainFirstColors: Color[] = [];
   /** True while resolving clears caused by incoming garbage (those don't send garbage back). */
   private resolvingGarbage = false;
   /**
@@ -286,7 +288,10 @@ export class Game {
     const matches = this.board.findMatches();
     if (matches.length > 0) {
       this.chainStep++;
-      if (!this.resolvingGarbage) this.chainLineColors.push(...matches.map(m => m.color));
+      if (!this.resolvingGarbage) {
+        if (this.chainStep === 1) this.chainFirstColors = [...new Set(matches.map(m => m.color))];
+        this.chainLineColors.push(...matches.map(m => m.color));
+      }
       const seen = new Set<number>();
       const cells: Pos[] = [];
       for (const m of matches) {
@@ -313,7 +318,7 @@ export class Game {
 
     if (!this.resolvingGarbage) {
       const out = garbageForChain(this.chainLineColors);
-      if (out.length > 0) this.emit({ type: 'garbageOut', colors: out });
+      if (out.length > 0) this.emit({ type: 'garbageOut', colors: out, firstColors: this.chainFirstColors });
       this.chainLineColors = [];
     }
 

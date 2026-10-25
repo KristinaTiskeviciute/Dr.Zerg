@@ -16,6 +16,8 @@ export interface Settings {
   cpuSkill: CpuSkillName;
   cpuLevel: number;
   cpuSpeed: Speed;
+  /** How many CPU opponents (1–3). */
+  cpuCount: number;
   fastGarbage: boolean;
 }
 
@@ -24,7 +26,7 @@ export const SKILL_LABEL: Record<CpuSkillName, string> = { easy: 'Easy', normal:
 
 const KEY = 'drzerg.settings';
 const DEFAULTS: Settings = {
-  mode: 'solo', name: '', level: 5, speed: 'med', cpuSkill: 'normal', cpuLevel: 5, cpuSpeed: 'med', fastGarbage: false,
+  mode: 'solo', name: '', level: 5, speed: 'med', cpuSkill: 'normal', cpuLevel: 5, cpuSpeed: 'med', cpuCount: 1, fastGarbage: false,
 };
 
 const clampLevel = (n: unknown, fallback: number) =>
@@ -44,6 +46,7 @@ export function loadSettings(): Settings {
         cpuSkill: raw.cpuSkill in CPU_SKILLS ? raw.cpuSkill : DEFAULTS.cpuSkill,
         cpuLevel: clampLevel(raw.cpuLevel, DEFAULTS.cpuLevel),
         cpuSpeed: isSpeed(raw.cpuSpeed) ? raw.cpuSpeed : DEFAULTS.cpuSpeed,
+        cpuCount: [1, 2, 3].includes(raw.cpuCount) ? raw.cpuCount : DEFAULTS.cpuCount,
         fastGarbage: raw.fastGarbage === true,
       };
     }

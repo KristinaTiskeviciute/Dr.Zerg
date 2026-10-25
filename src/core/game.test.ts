@@ -109,7 +109,7 @@ describe('Game', () => {
     const clears = events.filter(e => e.type === 'clear');
     expect(clears.map(e => e.type === 'clear' && e.chain)).toEqual([1, 2]);
     const out = events.find(e => e.type === 'garbageOut');
-    expect(out).toEqual({ type: 'garbageOut', colors: [Y, R] });
+    expect(out).toMatchObject({ type: 'garbageOut', colors: [Y, R], firstColors: [Y] });
   });
 
   it('the preview always shows the capsule that actually spawns next, even during clears', () => {
