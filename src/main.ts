@@ -11,7 +11,9 @@ import { KeyboardInput } from './input/keyboard';
 import { boardPixelSize, drawBoard, drawGerm } from './render/draw';
 import { BoardEffects } from './render/effects';
 import { gameView } from './render/view';
-import { BoardSnapshot, makeRoomCode, normalizeRoomCode, RoundResult, StartInfo } from './net/protocol';
+import {
+  BoardSnapshot, makeRoomCode, normalizeRoomCode, RoundResult, START_COUNTDOWN_MS, StartInfo,
+} from './net/protocol';
 import { encodeSnapshot, snapshotView } from './net/snapshot';
 import { $, loadSettings, saveSettings, Settings, SKILL_LABEL, SPEED_LABEL } from './ui/dom';
 import { MatchMessage, OnlineRoom } from './ui/lobby';
@@ -28,7 +30,8 @@ const oppFx = new BoardEffects();
 /** What's being played right now. */
 type Session =
   | { kind: 'solo'; game: Game }
-  | { kind: 'cpu'; match: Match; cpu: CpuController }
+  // startAt = end of the 3-2-1 countdown before each round.
+  | { kind: 'cpu'; match: Match; cpu: CpuController; startAt: number }
   | OnlineSession;
 
 /** An online round: your board runs here; the opponent's arrives as snapshots. */
@@ -77,7 +80,7 @@ function running(): boolean {
   if (!session || paused) return false;
   switch (session.kind) {
     case 'solo': return !session.game.isOver;
-    case 'cpu': return session.match.state === 'playing';
+    case 'cpu': return session.match.state === 'playing' && performance.now() >= session.startAt;
     case 'online': return onlineHold(session, performance.now()) === null;
   }
 }
@@ -236,7 +239,11 @@ function startCpuMatch(): void {
     seed: randomSeed(),
     fastGarbage: settings.fastGarbage,
   });
-  session = { kind: 'cpu', match, cpu: new CpuController(CPU_SKILLS[settings.cpuSkill], randomSeed()) };
+  session = {
+    kind: 'cpu', match, cpu: new CpuController(CPU_SKILLS[settings.cpuSkill], randomSeed()),
+    startAt: performance.now() + START_COUNTDOWN_MS,
+  };
+  overlayKey = '';
   setOpponentLabels('CPU', `CPU · ${SKILL_LABEL[settings.cpuSkill]} · Lv ${settings.cpuLevel}`);
   $('#hud-fast').classList.toggle('hidden', !settings.fastGarbage);
   enterPlay();
@@ -414,13 +421,26 @@ function nextRound(): void {
   if (session?.kind !== 'cpu') return;
   session.match.nextRound();
   session.cpu = new CpuController(CPU_SKILLS[settings.cpuSkill], randomSeed());
+  session.startAt = performance.now() + START_COUNTDOWN_MS;
   paused = false;
   acc = 0;
   youFx.reset();
   oppFx.reset();
   keyboard.reset();
   audio.startMusic();
+  overlayKey = '';
   hideOverlay();
+}
+
+/** Vs CPU: show 3-2-1 before each round, then get out of the way. */
+function updateCpuCountdown(s: Extract<Session, { kind: 'cpu' }>, now: number): void {
+  if (s.match.state !== 'playing' || paused) return;
+  if (now < s.startAt) {
+    setOverlayState('countdown', String(Math.ceil((s.startAt - now) / 1000)), s.match.round > 1 ? `Round ${s.match.round}` : 'vs CPU', []);
+  } else if (overlayKey === 'countdown') {
+    overlayKey = '';
+    hideOverlay();
+  }
 }
 
 /** Scale your board to fill the window height, leaving room for the HUD (and the CPU's board). */
@@ -647,6 +667,7 @@ function frame(now: number): void {
   lastTime = now;
 
   if (session?.kind === 'online') updateOnline(session, now);
+  if (session?.kind === 'cpu') updateCpuCountdown(session, now);
 
   if (running()) {
     acc += dt;

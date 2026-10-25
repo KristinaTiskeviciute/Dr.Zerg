@@ -86,6 +86,11 @@ export class Game {
   private chainLineColors: Color[] = [];
   /** True while resolving clears caused by incoming garbage (those don't send garbage back). */
   private resolvingGarbage = false;
+  /**
+   * A capsule half that locked up in the neck (above the bottle). It drops in once the
+   * board has settled, if there's room by then; if not, the player has topped out.
+   */
+  private overflow: { col: number; color: Color } | null = null;
 
   constructor(opts: GameOptions) {
     this.level = opts.level;
@@ -251,8 +256,17 @@ export class Game {
     this.active = null;
     this.pieceIndex++;
     this.emit({ type: 'lock', cells: [a.pos, b.pos] });
-    if (a.pos.row < 0 || b.pos.row < 0) return this.finish('lost');
-    this.board.placeCapsule(a.pos, a.color, b.pos, b.color);
+    const above = [a, b].filter(h => h.pos.row < 0);
+    if (above.length === 2) return this.finish('lost');
+    if (above.length === 1) {
+      // Half sticks up into the neck: the lower half goes in on its own and may clear;
+      // the top half waits to drop in (see overflow).
+      const inside = above[0] === a ? b : a;
+      this.board.set(inside.pos.row, inside.pos.col, { kind: 'pill', color: inside.color, link: 'none' });
+      this.overflow = { col: above[0].pos.col, color: above[0].color };
+    } else {
+      this.board.placeCapsule(a.pos, a.color, b.pos, b.color);
+    }
     this.chainStep = 0;
     this.chainLineColors = [];
     this.resolvingGarbage = false;
@@ -278,6 +292,15 @@ export class Game {
       const germs = cells.filter(p => this.board.get(p.row, p.col)?.kind === 'germ').length;
       this.emit({ type: 'clear', chain: this.chainStep, lines: matches.length, cells, germs });
       return this.enter('clearing');
+    }
+
+    // A half left in the neck drops in now if the clears made room, and can keep the chain going.
+    if (this.overflow) {
+      const { col, color } = this.overflow;
+      this.overflow = null;
+      if (this.board.get(0, col)) return this.finish('lost');
+      this.board.set(0, col, { kind: 'pill', color, link: 'none' });
+      return this.enter('settling');
     }
 
     if (!this.resolvingGarbage) {

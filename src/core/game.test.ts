@@ -152,6 +152,32 @@ describe('Game', () => {
     expect(g.active!.row).toBeGreaterThan(0);
   });
 
+  describe('locking with a half up in the neck', () => {
+    // Right-hand column full to the top: germs (no matches) from row 4 down, three red halves in rows 1–3.
+    const packed = (b: Board) => {
+      b.set(15, 0, { kind: 'germ', color: B });
+      for (let r = 4; r < 16; r++) b.set(r, 7, { kind: 'germ', color: [R, Y, B][r % 3] });
+      for (const r of [1, 2, 3]) b.set(r, 7, { kind: 'pill', color: R, link: 'none' });
+    };
+
+    it('keeps playing if the lower half clears a line: the top half drops in', () => {
+      const g = game(packed);
+      // Vertical capsule there: red bottom at row 0 (makes 4 reds), yellow top up in the neck.
+      g.active = { row: 0, col: 7, orientation: 1, colors: [Y, R] };
+      const events = [...dropCapsule(g), ...runUntilFalling(g)];
+      expect(events.some(e => e.type === 'clear')).toBe(true);
+      expect(g.phase).toBe('falling');
+      expect(g.board.get(3, 7)).toMatchObject({ kind: 'pill', color: Y }); // dropped in and fell into the gap
+    });
+
+    it('tops out if nothing clears to make room', () => {
+      const g = game(packed);
+      g.active = { row: 0, col: 7, orientation: 1, colors: [Y, B] }; // blue doesn't match the reds
+      [...dropCapsule(g), ...runUntilFalling(g)];
+      expect(g.phase).toBe('lost');
+    });
+  });
+
   it('a single clear sends no garbage', () => {
     expect(garbageForChain([R])).toEqual([]);
     expect(garbageForChain([R, Y])).toEqual([R, Y]);
