@@ -15,6 +15,7 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - **Pause between capsules:** a new capsule spawns at once and is controllable, but hangs at the top for `ENTRY_DELAY_MS` (350 ms) before gravity starts; soft drop skips the hang. (Tried first: a flying toss from the preview — stressful; then a pause where the capsule was visible but not controllable — swallowed early rotations. Both removed.)
 - **Rotating in the top row** works: the row above the bottle (the neck) counts as free space for a falling capsule.
 - **Garbage warning:** the moment the opponent's chain sends garbage, you hear a two-tone alarm and the queued pieces appear (blinking) as little pills on the bottle's left shoulder, until they drop after your capsule locks. Online: trigger the same when a `garbage` message arrives.
+- **Fast garbage** (room/menu setting) also speeds up loose halves falling after a clear when you hold ↓ — same `FAST_GARBAGE_MULTIPLIER`.
 - **Juice:** germs show a defeated face and blink before bursting; capsule flashes white on lock; small screen shake on chains (2+) and when garbage lands; germ "squish" and chain sparkle sounds.
 - **Controls** (trying out): ← → move, ↑ rotate clockwise, ↓ or Space = soft drop (held), Z/X rotate counter-clockwise/clockwise. No hard drop. Previous try was ↑/↓ both rotating with Space as drop.
 

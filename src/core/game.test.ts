@@ -202,6 +202,29 @@ describe('Game', () => {
     expect(fast).toBeLessThan(normal / 2);
     expect(onButNotHeld).toBeCloseTo(normal, -2);
   });
+
+  it('with fast garbage on, holding Down also speeds up loose halves falling after a clear', () => {
+    const timeToSettle = (fastGarbage: boolean, hold: boolean) => {
+      const g = game(b => {
+        b.set(15, 7, { kind: 'germ', color: B });
+        // Column 0: a red germ with two red singles on it. A red-bottom capsule completes the 4;
+        // its yellow top half is left over and falls 4 rows.
+        b.set(15, 0, { kind: 'germ', color: R });
+        b.set(14, 0, { kind: 'pill', color: R, link: 'none' });
+        b.set(13, 0, { kind: 'pill', color: R, link: 'none' });
+      }, { fastGarbage });
+      g.active = { row: 0, col: 0, orientation: 1, colors: [Y, R] };
+      dropCapsule(g);
+      while (g.phase !== 'settling') g.step(STEP);
+      let fall = 0;
+      while (g.phase === 'settling' && fall < 10000) { g.step(STEP, { softDrop: hold }); fall += STEP; }
+      expect(g.board.get(15, 0)).toMatchObject({ color: Y });
+      return fall;
+    };
+    const normal = timeToSettle(false, true);
+    expect(timeToSettle(true, true)).toBeLessThan(normal / 2);
+    expect(timeToSettle(true, false)).toBeCloseTo(normal, -2);
+  });
 });
 
 describe('pickGarbageColumns', () => {

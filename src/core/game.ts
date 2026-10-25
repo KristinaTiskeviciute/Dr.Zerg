@@ -141,7 +141,7 @@ export class Game {
     switch (this.phase) {
       case 'falling': return this.stepFalling(dt, input);
       case 'clearing': return this.stepClearing(dt);
-      case 'settling': return this.stepSettling(dt);
+      case 'settling': return this.stepSettling(dt, input);
       case 'garbage': return this.stepGarbage(dt, input);
     }
   }
@@ -202,8 +202,10 @@ export class Game {
     this.enter('settling');
   }
 
-  private stepSettling(dt: number): void {
-    this.phaseTimer += dt;
+  /** Loose halves falling after a clear. With Fast garbage on, holding Down speeds this up too. */
+  private stepSettling(dt: number, input: StepInput): void {
+    const fast = this.fastGarbage && input.softDrop;
+    this.phaseTimer += dt * (fast ? FAST_GARBAGE_MULTIPLIER : 1);
     while (this.phaseTimer >= GRAVITY_STEP_MS) {
       this.phaseTimer -= GRAVITY_STEP_MS;
       if (!this.board.gravityStep()) return this.resolve();
