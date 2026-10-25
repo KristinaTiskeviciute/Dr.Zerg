@@ -2,6 +2,7 @@ import { ROUNDS_TO_WIN, Speed } from '../config';
 import { Board } from './board';
 import { Game, GameEvent, StepInput } from './game';
 import { Rng } from './rng';
+import { garbageTargets } from './targeting';
 import { Color } from './types';
 
 export interface PlayerSetup {
@@ -27,9 +28,6 @@ export interface Delivery {
   to: number;
   colors: Color[];
 }
-
-/** How far "to the right" each first-clear color sends garbage (Dr. Mario 64's rule). */
-const TARGET_OFFSET: Record<Color, number> = { [Color.Blue]: 1, [Color.Yellow]: 2, [Color.Red]: 3 };
 
 /**
  * A versus match for 2–4 players. Every board shares each round's seed (same germs at the
@@ -72,16 +70,7 @@ export class Match {
 
   /** Who garbage from `from` goes to, given the colors of the chain's first clear. */
   targetsFor(from: number, firstColors: Color[]): number[] {
-    const n = this.games.length;
-    const others: number[] = [];
-    for (let k = 1; k < n; k++) {
-      const j = (from + k) % n;
-      if (this.isAlive(j)) others.push(j);
-    }
-    if (others.length === 0) return [];
-    if (n === 2) return others;
-    const targets = new Set(firstColors.map(c => others[(TARGET_OFFSET[c] - 1) % others.length]));
-    return [...targets];
+    return garbageTargets(from, this.games.map((_, i) => this.isAlive(i)), firstColors);
   }
 
   /** Advance every board one step. Returns each board's events and the garbage sent. */

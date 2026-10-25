@@ -1,12 +1,12 @@
 import { Speed } from '../config';
 import { ConnectionStatus, playerId, RoomConnection } from '../net/client';
-import { ClientMessage, LobbyState, MAX_PLAYERS, ServerMessage, StartInfo } from '../net/protocol';
+import { ClientMessage, LobbyState, MAX_PLAYERS, MIN_PLAYERS, ServerMessage, StartInfo } from '../net/protocol';
 import { $, saveSettings, Settings, SPEED_LABEL } from './dom';
 
 const SLOW_CONNECT_MS = 5000;
 
 /** Messages that matter during a match (boards, garbage, results, pause, disconnects). */
-export type MatchMessage = Extract<ServerMessage, { t: 'board' | 'garbage' | 'round' | 'pause' | 'away' | 'back' }>;
+export type MatchMessage = Extract<ServerMessage, { t: 'board' | 'garbage' | 'out' | 'round' | 'pause' | 'away' | 'back' }>;
 
 export interface RoomCallbacks {
   /** A round starts (first round from the lobby, later rounds automatically). */
@@ -129,6 +129,7 @@ export class OnlineRoom {
       case 'pause':
       case 'away':
       case 'back':
+      case 'out':
         this.cb.onMatchMessage(msg);
         break;
       case 'error':
@@ -237,10 +238,12 @@ export class OnlineRoom {
       else if (p.ready) tag('READY', 'ready');
       return li;
     });
-    while (items.length < MAX_PLAYERS) {
+    if (items.length < MAX_PLAYERS) {
       const li = document.createElement('li');
       li.className = 'empty';
-      li.textContent = 'Waiting for a friend… (send them the link)';
+      li.textContent = items.length < MIN_PLAYERS
+        ? 'Waiting for a friend… (send them the link)'
+        : `Room for ${MAX_PLAYERS - items.length} more (up to ${MAX_PLAYERS} players)`;
       items.push(li);
     }
     list.replaceChildren(...items);
@@ -252,8 +255,8 @@ export class OnlineRoom {
     ready.disabled = !me;
     const start = $<HTMLButtonElement>('#start-online');
     start.classList.toggle('hidden', !isHost);
-    const full = (lobby?.players.length ?? 0) === MAX_PLAYERS;
-    const allReady = full && lobby!.players.every(p => p.ready && p.connected);
+    const enough = (lobby?.players.length ?? 0) >= MIN_PLAYERS;
+    const allReady = enough && lobby!.players.every(p => p.ready && p.connected);
     start.disabled = !allReady;
     ready.parentElement!.style.gridTemplateColumns = isHost ? '1fr 1fr' : '1fr';
 
@@ -266,7 +269,7 @@ export class OnlineRoom {
       this.status === 'reconnecting' ? 'Connection lost, reconnecting…' :
       this.status === 'closed' ? 'Disconnected.' :
       lobby?.phase === 'playing' ? "A match is in progress. You'll join in at the next round." :
-      !full ? 'Share the link or the room code with a friend.' :
+      !enough ? `Share the link or the room code with friends (${MIN_PLAYERS}–${MAX_PLAYERS} players).` :
       !allReady ? 'Waiting for everyone to be ready.' :
       isHost ? 'Everyone is ready. Press Start!' : 'Everyone is ready. Waiting for the host to start.';
   }

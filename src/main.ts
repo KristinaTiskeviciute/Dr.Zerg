@@ -7,6 +7,7 @@ import { CpuController } from './core/ai';
 import { Game, GameEvent } from './core/game';
 import { Match } from './core/match';
 import { randomSeed } from './core/rng';
+import { garbageTargets } from './core/targeting';
 import { COLORS } from './core/types';
 import { GamepadInput } from './input/gamepad';
 import { KeyboardInput } from './input/keyboard';
@@ -65,21 +66,29 @@ type Session =
   | { kind: 'cpu'; match: Match; cpus: CpuController[]; startAt: number }
   | OnlineSession;
 
-/** An online round: your board runs here; the opponent's arrives as snapshots. */
+/** An opponent in an online round: their latest board snapshot and whether they're knocked out. */
+interface OnlineOpponent {
+  id: string;
+  name: string;
+  snap: BoardSnapshot | null;
+  /** When we last heard from them. */
+  at: number;
+  out: boolean;
+}
+
+/** An online round: your board runs here; the opponents' (1–3) arrive as snapshots. */
 interface OnlineSession {
   kind: 'online';
   game: Game;
   info: StartInfo;
-  opponentId: string;
-  opponentName: string;
+  /** Opponents in seating order. */
+  opps: OnlineOpponent[];
   /** Play (re)starts at this time: after the start countdown, a pause or a reconnect. */
   startAt: number;
   /** Shared pause: who paused (null if not paused). */
   pausedBy: string | null;
-  /** Opponent's connection dropped: they have until `until` to come back. */
+  /** An opponent's connection dropped: they have until `until` to come back. */
   away: { name: string; until: number } | null;
-  /** Latest snapshot of the opponent's board and when it arrived. */
-  opp: { snap: BoardSnapshot | null; at: number };
   /** The round's result from the server, once decided. */
   result: RoundResult | null;
   resultSent: boolean;
@@ -123,9 +132,14 @@ function onlineHold(s: OnlineSession, now: number): 'result' | 'over' | 'reconne
   if (!room.connected) return 'reconnecting';
   if (s.away) return 'away';
   if (s.pausedBy) return 'paused';
-  if (now - s.opp.at > STALE_MS) return 'stale';
+  if (staleOpponent(s, now)) return 'stale';
   if (now < s.startAt) return 'countdown';
   return null;
+}
+
+/** An opponent still in the round that we haven't heard from for a while (null if none). */
+function staleOpponent(s: OnlineSession, now: number): OnlineOpponent | null {
+  return s.opps.find(o => !o.out && now - o.at > STALE_MS) ?? null;
 }
 
 // --- Online room (lobby screen + connection) ---
@@ -299,44 +313,54 @@ function setupPlayers(names: string[], boardLabels: string[]): void {
 /** A round starts (the first from the lobby, later ones automatically): your board on the shared seed. */
 function startOnline(info: StartInfo): void {
   const me = info.players.find(p => p.id === room.me);
-  const opp = info.players.find(p => p.id !== room.me);
-  if (!me || !opp) return;
+  const others = info.players.filter(p => p.id !== room.me);
+  if (!me || others.length === 0) return;
   const now = performance.now();
   session = {
     kind: 'online',
     game: new Game({ level: me.level, speed: me.speed, seed: info.seed, fastGarbage: info.settings.fastGarbage, playerSalt: me.id }),
     info,
-    opponentId: opp.id,
-    opponentName: opp.name,
+    opps: others.map(p => ({ id: p.id, name: p.name, snap: null, at: now, out: false })),
     startAt: now + info.startInMs,
     pausedBy: null,
     away: null,
-    opp: { snap: null, at: now },
     result: null,
     resultSent: false,
     lastSent: { json: '', at: 0 },
   };
-  setupPlayers(['You', opp.name], [`${opp.name} · Lv ${opp.level} · ${SPEED_LABEL[opp.speed]}`]);
+  setupPlayers(['You', ...others.map(p => p.name)], others.map(p => `${p.name} · Lv ${p.level} · ${SPEED_LABEL[p.speed]}`));
   $('#hud-fast').classList.toggle('hidden', !info.settings.fastGarbage);
   overlayKey = '';
   enterPlay();
+}
+
+/** "You" or a player's name. */
+function onlineName(s: OnlineSession, id: string): string {
+  return id === room.me ? 'You' : s.opps.find(o => o.id === id)?.name ?? 'Someone';
 }
 
 function onMatchMessage(msg: MatchMessage): void {
   if (session?.kind !== 'online') return;
   const s = session;
   const now = performance.now();
+  const opp = 'from' in msg ? s.opps.find(o => o.id === msg.from) : undefined;
   switch (msg.t) {
     case 'board':
-      if (msg.from === s.opponentId) s.opp = { snap: msg.snap, at: now };
+      if (opp) { opp.snap = msg.snap; opp.at = now; }
       break;
     case 'garbage':
-      if (msg.from === s.opponentId && !s.result) {
+      // The server only sends garbage to the players it targeted.
+      if (opp && !s.result) {
         s.game.receiveGarbage(msg.colors);
         youFx.markIncoming();
         audio.play('warning', 0, 0); rumble.warning();
       }
       break;
+    case 'out': {
+      const o = s.opps.find(x => x.id === msg.id);
+      if (o) o.out = true;
+      break;
+    }
     case 'pause':
       s.pausedBy = msg.paused ? msg.by : null;
       if (!msg.paused) s.startAt = now + msg.resumeInMs;
@@ -344,13 +368,13 @@ function onMatchMessage(msg: MatchMessage): void {
       keyboard.reset();
       break;
     case 'away':
-      if (msg.id === s.opponentId) s.away = { name: msg.name, until: now + msg.graceMs };
+      if (msg.id !== room.me) s.away = { name: msg.name, until: now + msg.graceMs };
       break;
     case 'back':
-      // Either the opponent came back, or you did after a blip: resume after a countdown.
-      if (msg.id === s.opponentId) s.away = null;
+      // An opponent came back, or you did after a blip: resume after a countdown.
+      if (msg.id !== room.me) s.away = null;
       s.startAt = now + msg.resumeInMs;
-      s.opp.at = now;
+      for (const o of s.opps) o.at = now;
       keyboard.reset();
       break;
     case 'round':
@@ -367,31 +391,38 @@ function onOnlineRound(s: OnlineSession, r: RoundResult): void {
     rumble.roundEnd(r.winner === room.me);
   }
 
-  const who = (id: string) => (id === room.me ? 'You' : s.opponentName);
+  const who = (id: string) => onlineName(s, id);
+  const mine = r.by === room.me;
   const why =
-    r.reason === 'cleared' ? `${who(r.by)} cleared ${r.by === room.me ? 'your' : 'their'} bottle` :
+    r.reason === 'cleared' ? `${who(r.by)} cleared ${mine ? 'your' : 'their'} bottle` :
     r.reason === 'toppedOut' ? `${who(r.by)} topped out` :
     r.reason === 'forfeit' ? `${who(r.by)} left the round` :
+    r.reason === 'lastStanding' ? (mine ? "You're the last one standing" : `${who(r.by)} is the last one standing`) :
     `${who(r.by)} disconnected`;
-  const score = `You ${r.wins[room.me] ?? 0} – ${r.wins[s.opponentId] ?? 0} ${s.opponentName}`;
+  const score = s.opps.length === 1
+    ? `You ${r.wins[room.me] ?? 0} – ${r.wins[s.opps[0].id] ?? 0} ${s.opps[0].name}`
+    : [room.me, ...s.opps.map(o => o.id)].map(id => `${who(id)} ${r.wins[id] ?? 0}`).join(' · ');
   const iWon = r.winner === room.me;
+  const winnerName = r.winner ? who(r.winner) : '';
   overlayKey = 'result';
   if (r.matchOver) {
-    showOverlay(iWon ? 'You win the match!' : `${s.opponentName} wins the match`, `${why}. ${score}`, [
+    showOverlay(iWon ? 'You win the match!' : r.winner ? `${winnerName} wins the match` : 'Match over', `${why}. ${score}`, [
       ['Play again', () => playAgainOnline(s)],
       ['Back to lobby', leaveOnlineMatch],
       ['Leave room', () => room.leave()],
     ]);
   } else {
     const round = s.info.round;
-    showOverlay(iWon ? `You take round ${round}` : `${s.opponentName} takes round ${round}`, `${why}. ${score}. Next round coming up…`, []);
+    const title = !r.winner ? 'Draw!' : iWon ? `You take round ${round}` : `${winnerName} takes round ${round}`;
+    showOverlay(title, `${why}. ${score}. Next round coming up…`, []);
   }
 }
 
-/** Ready for another match with the same settings; it starts once the other player agrees. */
+/** Ready for another match with the same settings; it starts once everyone agrees. */
 function playAgainOnline(s: OnlineSession): void {
   room.send({ t: 'playAgain' });
-  showOverlay('Play again', `Waiting for ${s.opponentName}…`, [['Back to lobby', leaveOnlineMatch]]);
+  const waitingFor = s.opps.length === 1 ? s.opps[0].name : 'the others';
+  showOverlay('Play again', `Waiting for ${waitingFor}…`, [['Back to lobby', leaveOnlineMatch]]);
 }
 
 function leaveOnlineMatch(): void {
@@ -433,20 +464,25 @@ function updateOnline(s: OnlineSession, now: number): void {
   const secs = (t: number) => String(Math.max(0, Math.ceil((t - now) / 1000)));
   switch (hold) {
     case 'over':
+      if (s.game.phase === 'lost' && s.opps.filter(o => !o.out).length > 1) {
+        return setOverlayState('over', "You're out", 'Watching the others finish the round…', []);
+      }
       return setOverlayState('over', s.game.phase === 'won' ? 'Bottle clean!' : 'Topped out', 'Waiting for the result…', []);
     case 'reconnecting':
       return setOverlayState('reconnecting', 'Reconnecting…', 'Your connection dropped. Hang on…', []);
     case 'away':
-      return setOverlayState('away', 'Opponent disconnected', `${s.away!.name} has ${secs(s.away!.until)} s to come back`, []);
+      return setOverlayState('away', `${s.away!.name} disconnected`, `${s.away!.name} has ${secs(s.away!.until)} s to come back`, []);
     case 'paused':
-      return setOverlayState('paused', 'Paused', `Paused by ${s.pausedBy}. Either of you can resume.`, [
+      return setOverlayState('paused', 'Paused', `Paused by ${s.pausedBy}. Anyone can resume.`, [
         ['Resume', () => room.send({ t: 'pause', paused: false })],
         ['Leave room', () => room.leave()],
       ]);
     case 'stale':
-      return setOverlayState('stale', 'Connection problem…', `Waiting to hear from ${s.opponentName}`, []);
-    case 'countdown':
-      return setOverlayState('countdown', secs(s.startAt), s.info.round > 1 ? `Round ${s.info.round}` : `vs ${s.opponentName}`, []);
+      return setOverlayState('stale', 'Connection problem…', `Waiting to hear from ${staleOpponent(s, now)?.name ?? 'the others'}`, []);
+    case 'countdown': {
+      const vs = s.opps.length === 1 ? `vs ${s.opps[0].name}` : `vs ${s.opps.map(o => o.name).join(', ')}`;
+      return setOverlayState('countdown', secs(s.startAt), s.info.round > 1 ? `Round ${s.info.round}` : vs, []);
+    }
     default:
       if (overlayKey) {
         overlayKey = '';
@@ -555,7 +591,7 @@ function updateMusicRate(): void {
   if (!me || !session) return;
   const others =
     session.kind === 'cpu' ? session.match.games.slice(1).filter(g => g.phase !== 'lost').map(g => g.germsLeft) :
-    session.kind === 'online' && session.opp.snap ? [session.opp.snap.g] : [];
+    session.kind === 'online' ? session.opps.filter(o => !o.out && o.snap).map(o => o.snap!.g) : [];
   const endgame = [me.germsLeft, ...others].some(g => g > 0 && g <= ENDGAME_GERMS);
   const rate = Math.min(MUSIC_MAX_RATE, 1 + MUSIC_SPEEDUP_PER_STEP * me.speedStep) + (endgame ? ENDGAME_MUSIC_BOOST : 0);
   if (Math.abs(rate - lastMusicRate) > 0.001) {
@@ -720,9 +756,15 @@ function step(): void {
     youFx.onEvents(events);
     if (session.kind === 'online') {
       for (const e of events) {
-        if (e.type === 'garbageOut') {
-          room.send({ t: 'garbage', colors: e.colors });
-          opponents.fx(0).markIncoming();
+        if (e.type !== 'garbageOut') continue;
+        room.send({ t: 'garbage', colors: e.colors, firstColors: e.firstColors });
+        // The server picks the targets; work out the same ones here just to blink their incoming preview.
+        const s = session;
+        const seats = s.info.players.map(p => p.id);
+        const alive = seats.map(id => id === room.me || !s.opps.find(o => o.id === id)?.out);
+        for (const t of garbageTargets(seats.indexOf(room.me), alive, e.firstColors)) {
+          const k = s.opps.findIndex(o => o.id === seats[t]);
+          if (k >= 0) opponents.fx(k).markIncoming();
         }
       }
     }
@@ -758,8 +800,8 @@ function updateHud(): void {
   } else {
     const wins = session.result?.wins ?? session.info.wins;
     hud.update([
-      { wins: wins[room.me] ?? 0, germs: session.game.germsLeft, out: false },
-      { wins: wins[session.opponentId] ?? 0, germs: session.opp.snap?.g ?? null, out: false },
+      { wins: wins[room.me] ?? 0, germs: session.game.germsLeft, out: session.game.phase === 'lost' },
+      ...session.opps.map(o => ({ wins: wins[o.id] ?? 0, germs: o.snap?.g ?? null, out: o.out })),
     ]);
   }
 }
@@ -801,10 +843,14 @@ function frame(now: number): void {
     applyShake(canvas, youFx, now);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!hidden) drawBoard(ctx, gameView(me, youFx), 0, 0, now);
-    $('#play').classList.toggle('you-out', session.kind === 'cpu' && !session.match.isAlive(0));
+    const youOut =
+      session.kind === 'cpu' ? !session.match.isAlive(0) :
+      session.kind === 'online' && session.opps.length > 1 && session.game.phase === 'lost';
+    $('#play').classList.toggle('you-out', youOut);
     if (session.kind === 'online') {
-      const snap = session.opp.snap;
-      opponents.draw(0, snap && !hidden ? snapshotView(snap, opponents.fx(0).incomingFresh) : null, now, false);
+      session.opps.forEach((o, k) => opponents.draw(
+        k, o.snap && !hidden ? snapshotView(o.snap, opponents.fx(k).incomingFresh) : null, now, o.out,
+      ));
     }
     if (session.kind === 'cpu') {
       const m = session.match;

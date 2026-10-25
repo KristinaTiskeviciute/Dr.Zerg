@@ -2,8 +2,11 @@
 // Pure logic (no Cloudflare APIs) so it can be unit-tested; server/index.ts wires it up.
 
 import { ROUNDS_TO_WIN, Speed } from '../src/config';
+import { garbageTargets } from '../src/core/targeting';
+import { Color } from '../src/core/types';
 import {
-  ErrorCode, LobbyPlayer, LobbyState, MAX_PLAYERS, Outcome, ROUND_BREAK_MS, RoundResult, START_COUNTDOWN_MS, StartInfo,
+  ErrorCode, LobbyPlayer, LobbyState, MAX_PLAYERS, MIN_PLAYERS, Outcome, ROUND_BREAK_MS, RoundResult,
+  START_COUNTDOWN_MS, StartInfo,
 } from '../src/net/protocol';
 
 interface MatchState {
@@ -11,6 +14,14 @@ interface MatchState {
   wins: Record<string, number>;
   /** True between a round's result and the next round's start. */
   roundOver: boolean;
+  /** Knocked out of the current round. */
+  out: Set<string>;
+}
+
+/** What a player's report (or leaving) changed: who's now out, and the round result if it's decided. */
+export interface Report {
+  out: { id: string; reason: Outcome | 'disconnect' } | null;
+  round: RoundResult | null;
 }
 
 export type Result<T = void> = { ok: true; value: T } | { ok: false; code: ErrorCode; message: string };
@@ -64,11 +75,18 @@ export class Lobby {
     return this.find(id)?.connected ?? false;
   }
 
-  /** Free their seat for good. If they were host, the next player becomes host. */
+  /**
+   * Free their seat for good. If they were host, the next player becomes host. A match
+   * carries on without them while at least two players are left.
+   */
   remove(id: string): void {
     this.players = this.players.filter(p => p.id !== id);
     if (this.hostId === id) this.hostId = this.players[0]?.id ?? null;
-    if (this.players.length < MAX_PLAYERS) this.backToLobby();
+    if (this.match) {
+      delete this.match.wins[id];
+      this.match.out.delete(id);
+      if (this.players.length < MIN_PLAYERS) this.backToLobby();
+    }
   }
 
   nameOf(id: string): string {
@@ -102,9 +120,10 @@ export class Lobby {
     return ok(undefined);
   }
 
+  /** 2–4 players, all here and ready. */
   get canStart(): boolean {
     return this.phase === 'lobby'
-      && this.players.length === MAX_PLAYERS
+      && this.players.length >= MIN_PLAYERS
       && this.players.every(p => p.ready && p.connected);
   }
 
@@ -113,8 +132,19 @@ export class Lobby {
     if (id !== this.hostId) return fail('notAllowed', 'Only the host can start.');
     if (!this.canStart) return fail('notAllowed', 'Everyone needs to be here and ready.');
     this.phase = 'playing';
-    this.match = { round: 1, wins: Object.fromEntries(this.players.map(p => [p.id, 0])), roundOver: false };
+    this.match = {
+      round: 1, wins: Object.fromEntries(this.players.map(p => [p.id, 0])), roundOver: false, out: new Set(),
+    };
     return ok(this.startInfo(seed));
+  }
+
+  /** Who a chain's garbage goes to (player ids), from the colors of its first clear. Seats = join order. */
+  garbageTargets(from: string, firstColors: Color[]): string[] {
+    const m = this.match;
+    const seat = this.players.findIndex(p => p.id === from);
+    if (!m || m.roundOver || seat < 0 || m.out.has(from)) return [];
+    const alive = this.players.map(p => !m.out.has(p.id));
+    return garbageTargets(seat, alive, firstColors).map(i => this.players[i].id);
   }
 
   get inMatch(): boolean {
@@ -126,29 +156,55 @@ export class Lobby {
   }
 
   /**
-   * A player reports how their round ended. The first report decides the round
-   * (so two near-simultaneous wins can't both count). Returns null if it's too late.
+   * A player reports how their round ended. Clearing your bottle wins the round at once;
+   * topping out or forfeiting knocks you out, and the round goes to the last one standing.
+   * The first deciding report wins (so two near-simultaneous clears can't both count).
+   * Returns null if the report is too late or doesn't apply.
    */
-  result(id: string, outcome: Outcome): RoundResult | null {
-    if (!this.inMatch || this.match!.roundOver || !this.find(id)) return null;
-    const other = this.players.find(p => p.id !== id)?.id ?? null;
-    return this.finishRound(outcome === 'cleared' ? id : other, outcome, id, false);
+  result(id: string, outcome: Outcome): Report | null {
+    const m = this.match;
+    if (!this.inMatch || !m || m.roundOver || !this.find(id) || m.out.has(id)) return null;
+    if (outcome === 'cleared') return { out: null, round: this.finishRound(id, 'cleared', id, false) };
+    return this.knockOut(id, outcome, false);
   }
 
-  /** The next round of the match, if the last one is over and both players are here. */
+  /** The next round of the match, if the last one is over and everyone left is here. */
   nextRound(seed: number): StartInfo | null {
-    if (!this.inMatch || !this.match!.roundOver) return null;
-    if (!this.players.every(p => p.connected) || this.players.length < MAX_PLAYERS) return null;
-    this.match!.round++;
-    this.match!.roundOver = false;
+    const m = this.match;
+    if (!this.inMatch || !m || !m.roundOver) return null;
+    if (this.players.length < MIN_PLAYERS || !this.players.every(p => p.connected)) return null;
+    m.round++;
+    m.roundOver = false;
+    m.out.clear();
     return this.startInfo(seed);
   }
 
-  /** A player didn't come back in time: the other player wins the match. */
-  abandon(id: string): RoundResult | null {
-    if (!this.inMatch) return null;
-    const other = this.players.find(p => p.id !== id)?.id ?? null;
-    return this.finishRound(other, 'disconnect', id, true);
+  /**
+   * A player didn't come back in time. With two players the other one wins the match; with
+   * more, they're knocked out of this round (and their seat is freed afterwards, see remove).
+   */
+  abandon(id: string): Report | null {
+    const m = this.match;
+    if (!this.inMatch || !m) return null;
+    if (this.players.length <= 2) {
+      const other = this.players.find(p => p.id !== id)?.id ?? null;
+      return { out: { id, reason: 'disconnect' }, round: this.finishRound(other, 'disconnect', id, true) };
+    }
+    if (m.roundOver || m.out.has(id)) return { out: null, round: null };
+    return this.knockOut(id, 'disconnect', false);
+  }
+
+  private knockOut(id: string, reason: Outcome | 'disconnect', forceEnd: boolean): Report {
+    const m = this.match!;
+    m.out.add(id);
+    const alive = this.players.filter(p => !m.out.has(p.id));
+    if (alive.length > 1) return { out: { id, reason }, round: null };
+    // One (or nobody) left: the round is decided.
+    const winner = alive[0]?.id ?? null;
+    const round = this.players.length === 2
+      ? this.finishRound(winner, reason, id, forceEnd)
+      : this.finishRound(winner, 'lastStanding', winner ?? id, forceEnd);
+    return { out: { id, reason }, round };
   }
 
   /**
@@ -168,6 +224,11 @@ export class Lobby {
     this.phase = 'lobby';
     this.match = null;
     for (const p of this.players) p.ready = false;
+  }
+
+  /** Players knocked out of the current round. */
+  get outPlayers(): string[] {
+    return [...(this.match?.out ?? [])];
   }
 
   private finishRound(winner: string | null, reason: RoundResult['reason'], by: string, forceEnd: boolean): RoundResult {

@@ -58,7 +58,9 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - `Match` handles 2–4 players. Garbage targeting (Dr. Mario 64): the colors of a chain's first clear pick targets — blue → next player in seating order, yellow → two over, red → three over, wrapping and skipping players who are out; two colors in the first clear hit two players. With 2 players it always goes to the other.
 - Topping out knocks you out of the round (board greyed with OUT). The round goes to whoever clears first, or the last one standing; simultaneous clears or everyone out at once = draw. First to 3 round wins.
 - Layout: one opponent at full size; two at 0.6×, three at 0.5×, side by side. Side panel lists every player's stars and germs.
-- Next: online rooms for 3–4 players (server seats, lobby, snapshots from several boards, targeting on the server or by the sender).
+- Online rooms take 2–4 players (seat order = join order). The host can start once 2+ are in and everyone is ready.
+- Online targeting is done by the server (`src/core/targeting.ts`, shared with Vs CPU): clients send `garbage` with the chain's `firstColors`; the server sends it only to the targeted players.
+- Knock-outs online: a `result` of toppedOut/forfeit marks you out (`out` message to everyone); the round ends when someone clears or one player is left (`lastStanding`). Someone gone past the grace period is knocked out and their seat freed; the match continues while 2+ players remain (with 2, the other player wins the match, as before).
 
 ## Visuals
 - Pixel-art style: 16×16 sprites defined as text grids in `src/render/sprites.ts`, drawn on a small canvas and scaled up with pixelated rendering. Germs: red Spike (horns), yellow Buzz (antenna), blue Peep (three eyes).

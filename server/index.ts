@@ -6,7 +6,7 @@ import { RECONNECT_GRACE_S } from '../src/config';
 import {
   normalizeRoomCode, parseClientMessage, RESUME_COUNTDOWN_MS, type RoundResult, type ServerMessage,
 } from '../src/net/protocol';
-import { Lobby, type Result } from './lobby';
+import { Lobby, type Report, type Result } from './lobby';
 
 interface ConnState {
   playerId: string;
@@ -39,9 +39,15 @@ export class Room extends Server<Env> {
       case 'board':
         if (this.lobby.inMatch) this.broadcastJson({ t: 'board', from: id, snap: msg.snap }, [conn.id]);
         return;
-      case 'garbage':
-        if (this.lobby.inMatch && !this.lobby.roundOver) this.broadcastJson({ t: 'garbage', from: id, colors: msg.colors }, [conn.id]);
+      case 'garbage': {
+        // The server picks the targets, so every player agrees who got hit.
+        const targets = new Set(this.lobby.garbageTargets(id, msg.firstColors));
+        const out: ServerMessage = { t: 'garbage', from: id, colors: msg.colors };
+        for (const c of this.getConnections<ConnState>()) {
+          if (c.state && targets.has(c.state.playerId)) this.send(c, out);
+        }
         return;
+      }
       case 'pause':
         if (this.lobby.inMatch) {
           this.broadcastJson({ t: 'pause', paused: msg.paused, by: this.lobby.nameOf(id), resumeInMs: msg.paused ? 0 : RESUME_COUNTDOWN_MS });
@@ -49,7 +55,7 @@ export class Room extends Server<Env> {
         return;
       case 'result': {
         const r = this.lobby.result(id, msg.outcome);
-        if (r) this.announceRound(r);
+        if (r) this.announce(r);
         return;
       }
     }
@@ -97,9 +103,9 @@ export class Room extends Server<Env> {
     this.removals.set(id, setTimeout(() => {
       this.removals.delete(id);
       if (this.lobby.isConnected(id)) return;
-      // Gone for good: mid-match the other player wins; either way the seat is freed.
+      // Gone for good: they're out of the match (with two players the other one wins); the seat is freed.
       const r = this.lobby.abandon(id);
-      if (r) this.announceRound(r);
+      if (r) this.announce(r);
       this.lobby.remove(id);
       this.broadcastLobby();
     }, RECONNECT_GRACE_S * 1000));
@@ -125,6 +131,12 @@ export class Room extends Server<Env> {
       if (this.lobby.roundOver && this.nextRoundTimer === undefined) this.scheduleNextRound(RESUME_COUNTDOWN_MS);
     }
     this.broadcastLobby();
+  }
+
+  /** Tell everyone who was knocked out, and the round result if it's decided. */
+  private announce(r: Report): void {
+    if (r.out) this.broadcastJson({ t: 'out', id: r.out.id, reason: r.out.reason });
+    if (r.round) this.announceRound(r.round);
   }
 
   private announceRound(r: RoundResult): void {

@@ -4,7 +4,8 @@
 
 import { MAX_LEVEL, MIN_LEVEL, Speed } from '../config';
 
-export const MAX_PLAYERS = 2;
+export const MAX_PLAYERS = 4;
+export const MIN_PLAYERS = 2;
 export const MAX_NAME_LENGTH = 16;
 export const START_COUNTDOWN_MS = 3000;
 /** Countdown when play resumes after a pause or a reconnect. */
@@ -31,7 +32,8 @@ export interface BoardSnapshot {
 
 /** How a player's round ended: they cleared their bottle, topped out, or forfeited (e.g. reloaded mid-round). */
 export type Outcome = 'cleared' | 'toppedOut' | 'forfeit';
-export type RoundReason = Outcome | 'disconnect';
+/** Why a round ended. With 3–4 players a round that ends by knock-outs is 'lastStanding' (by = the winner). */
+export type RoundReason = Outcome | 'disconnect' | 'lastStanding';
 
 export interface LobbyPlayer {
   id: string;
@@ -65,7 +67,8 @@ export type ClientMessage =
   | { t: 'playAgain' }
   // During a match:
   | { t: 'board'; snap: BoardSnapshot }
-  | { t: 'garbage'; colors: number[] }
+  /** firstColors = the colors of the chain's first clear; the server uses them to pick targets. */
+  | { t: 'garbage'; colors: number[]; firstColors: number[] }
   | { t: 'result'; outcome: Outcome }
   | { t: 'pause'; paused: boolean };
 
@@ -101,6 +104,8 @@ export type ServerMessage =
   // During a match:
   | { t: 'board'; from: string; snap: BoardSnapshot }
   | { t: 'garbage'; from: string; colors: number[] }
+  /** A player was knocked out of the round (topped out, left the round, or gone for good). */
+  | { t: 'out'; id: string; reason: Outcome | 'disconnect' }
   | ({ t: 'round' } & RoundResult)
   /** Shared pause. On unpause, play resumes after resumeInMs. */
   | { t: 'pause'; paused: boolean; by: string; resumeInMs: number }
@@ -146,10 +151,13 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return { t: 'playAgain' };
     case 'board':
       return isSnapshot(m.snap) ? { t: 'board', snap: m.snap } : null;
-    case 'garbage':
-      return Array.isArray(m.colors) && m.colors.length >= 1 && m.colors.length <= 4 && m.colors.every(isColor)
-        ? { t: 'garbage', colors: m.colors as number[] }
+    case 'garbage': {
+      const colorList = (v: unknown, max: number): v is number[] =>
+        Array.isArray(v) && v.length >= 1 && v.length <= max && v.every(isColor);
+      return colorList(m.colors, 4) && colorList(m.firstColors, 3)
+        ? { t: 'garbage', colors: m.colors, firstColors: m.firstColors }
         : null;
+    }
     case 'result':
       return m.outcome === 'cleared' || m.outcome === 'toppedOut' || m.outcome === 'forfeit'
         ? { t: 'result', outcome: m.outcome }

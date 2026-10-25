@@ -1,29 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import { ROUNDS_TO_WIN } from '../src/config';
+import { Color } from '../src/core/types';
 import { makeRoomCode, normalizeRoomCode, parseClientMessage } from '../src/net/protocol';
 import { Lobby } from './lobby';
 
-function twoReady(): Lobby {
+const ids = ['alice-1', 'bob-123', 'carol-1', 'dave-12'];
+
+/** A room with the first `n` players joined and ready (Alice is host). */
+function ready(n = 2): Lobby {
   const l = new Lobby('ABCD');
-  l.join('alice-1', 'Alice');
-  l.join('bob-123', 'Bob');
-  l.setReady('alice-1', true);
-  l.setReady('bob-123', true);
+  for (const id of ids.slice(0, n)) l.join(id, id.split('-')[0]);
+  for (const id of ids.slice(0, n)) l.setReady(id, true);
   return l;
 }
+const twoReady = () => ready(2);
 
 describe('Lobby', () => {
-  it('makes the first player host and fills two seats', () => {
-    const l = new Lobby('ABCD');
-    expect(l.join('alice-1', 'Alice').ok).toBe(true);
-    expect(l.join('bob-123', 'Bob').ok).toBe(true);
+  it('makes the first player host and seats up to four', () => {
+    const l = ready(4);
     expect(l.state.hostId).toBe('alice-1');
-    expect(l.state.players.map(p => p.name)).toEqual(['Alice', 'Bob']);
+    expect(l.state.players.map(p => p.id)).toEqual(ids);
   });
 
-  it('turns away a third player', () => {
-    const l = twoReady();
-    const r = l.join('carol-1', 'Carol');
+  it('turns away a fifth player', () => {
+    const l = ready(4);
+    const r = l.join('eve-1234', 'Eve');
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe('full');
   });
@@ -50,20 +51,23 @@ describe('Lobby', () => {
     expect(l.state.settings.fastGarbage).toBe(true);
   });
 
-  it('starts only when the host asks and both players are here and ready', () => {
+  it('starts only when the host asks and 2+ players are here and ready', () => {
     const l = new Lobby('ABCD');
     l.join('alice-1', 'Alice');
+    l.setReady('alice-1', true);
     expect(l.start('alice-1', 1).ok).toBe(false); // alone
     l.join('bob-123', 'Bob');
-    l.setReady('alice-1', true);
     expect(l.start('alice-1', 1).ok).toBe(false); // Bob not ready
     l.setReady('bob-123', true);
     expect(l.start('bob-123', 1).ok).toBe(false); // not host
+    l.join('carol-1', 'Carol');
+    expect(l.start('alice-1', 1).ok).toBe(false); // Carol not ready
+    l.setReady('carol-1', true);
     const r = l.start('alice-1', 42);
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.value.seed).toBe(42);
-      expect(r.value.players.map(p => p.id)).toEqual(['alice-1', 'bob-123']);
+      expect(r.value.players.map(p => p.id)).toEqual(['alice-1', 'bob-123', 'carol-1']);
       expect(r.value.startInMs).toBeGreaterThan(0);
     }
     expect(l.state.phase).toBe('playing');
@@ -79,7 +83,7 @@ describe('Lobby', () => {
     if (!r.ok) expect(r.code).toBe('inProgress');
   });
 
-  it('freeing a seat mid-match ends the match', () => {
+  it('freeing a seat mid-match ends a 2-player match', () => {
     const l = twoReady();
     l.start('alice-1', 1);
     l.disconnect('bob-123');
@@ -105,7 +109,7 @@ describe('Lobby', () => {
   });
 });
 
-describe('match', () => {
+describe('match (2 players)', () => {
   function playing(): Lobby {
     const l = twoReady();
     l.start('alice-1', 1);
@@ -114,7 +118,7 @@ describe('match', () => {
 
   it('clearing your bottle wins the round; topping out loses it', () => {
     const l = playing();
-    const r1 = l.result('alice-1', 'cleared')!;
+    const r1 = l.result('alice-1', 'cleared')!.round!;
     expect(r1.winner).toBe('alice-1');
     expect(r1.wins).toEqual({ 'alice-1': 1, 'bob-123': 0 });
     expect(r1.matchOver).toBe(false);
@@ -122,18 +126,20 @@ describe('match', () => {
 
     l.nextRound(2);
     const r2 = l.result('alice-1', 'toppedOut')!;
-    expect(r2.winner).toBe('bob-123');
+    expect(r2.out).toEqual({ id: 'alice-1', reason: 'toppedOut' });
+    expect(r2.round!.winner).toBe('bob-123');
+    expect(r2.round!.reason).toBe('toppedOut');
   });
 
   it('the first result decides the round; a late second one is ignored', () => {
     const l = playing();
-    expect(l.result('bob-123', 'cleared')!.winner).toBe('bob-123');
+    expect(l.result('bob-123', 'cleared')!.round!.winner).toBe('bob-123');
     expect(l.result('alice-1', 'cleared')).toBeNull();
   });
 
   it('a forfeit (reload mid-round) gives the round to the other player', () => {
     const l = playing();
-    expect(l.result('bob-123', 'forfeit')!.winner).toBe('alice-1');
+    expect(l.result('bob-123', 'forfeit')!.round!.winner).toBe('alice-1');
   });
 
   it('next round only after a result, with a new round number and the score so far', () => {
@@ -159,11 +165,11 @@ describe('match', () => {
   it(`${ROUNDS_TO_WIN} round wins ends the match (2–0 keeps going) and returns the room to the lobby`, () => {
     const l = playing();
     for (let w = 1; w < ROUNDS_TO_WIN; w++) {
-      const mid = l.result('alice-1', 'cleared')!;
+      const mid = l.result('alice-1', 'cleared')!.round!;
       expect(mid.matchOver).toBe(false);
       l.nextRound(w + 1);
     }
-    const r = l.result('bob-123', 'toppedOut')!;
+    const r = l.result('bob-123', 'toppedOut')!.round!;
     expect(r.wins['alice-1']).toBe(ROUNDS_TO_WIN);
     expect(r.matchOver).toBe(true);
     expect(r.nextInMs).toBeNull();
@@ -190,7 +196,7 @@ describe('match', () => {
   it('a player who never comes back loses the match', () => {
     const l = playing();
     l.disconnect('bob-123');
-    const r = l.abandon('bob-123')!;
+    const r = l.abandon('bob-123')!.round!;
     expect(r.winner).toBe('alice-1');
     expect(r.reason).toBe('disconnect');
     expect(r.matchOver).toBe(true);
@@ -201,6 +207,71 @@ describe('match', () => {
     l.disconnect('bob-123');
     expect(l.state.players[1].ready).toBe(true);
   });
+
+  it('garbage always goes to the other player', () => {
+    const l = playing();
+    expect(l.garbageTargets('alice-1', [Color.Red])).toEqual(['bob-123']);
+    expect(l.garbageTargets('bob-123', [Color.Yellow])).toEqual(['alice-1']);
+  });
+});
+
+describe('match (3–4 players)', () => {
+  function playing(n: number): Lobby {
+    const l = ready(n);
+    l.start('alice-1', 1);
+    return l;
+  }
+
+  it('topping out knocks you out; the last one standing wins the round', () => {
+    const l = playing(3);
+    const r1 = l.result('bob-123', 'toppedOut')!;
+    expect(r1.out).toEqual({ id: 'bob-123', reason: 'toppedOut' });
+    expect(r1.round).toBeNull(); // two still in
+    expect(l.result('bob-123', 'toppedOut')).toBeNull(); // already out
+    const r2 = l.result('alice-1', 'toppedOut')!;
+    expect(r2.round!.winner).toBe('carol-1');
+    expect(r2.round!.reason).toBe('lastStanding');
+    expect(r2.round!.by).toBe('carol-1');
+  });
+
+  it('clearing your bottle wins straight away, even with others still in', () => {
+    const l = playing(4);
+    l.result('dave-12', 'toppedOut');
+    expect(l.result('carol-1', 'cleared')!.round!.winner).toBe('carol-1');
+  });
+
+  it('the server targets garbage by first-clear color, skipping players who are out', () => {
+    const l = playing(4);
+    expect(l.garbageTargets('alice-1', [Color.Blue])).toEqual(['bob-123']);
+    expect(l.garbageTargets('alice-1', [Color.Yellow])).toEqual(['carol-1']);
+    expect(l.garbageTargets('alice-1', [Color.Red])).toEqual(['dave-12']);
+    l.result('bob-123', 'toppedOut');
+    expect(l.garbageTargets('alice-1', [Color.Blue])).toEqual(['carol-1']);
+    expect(l.garbageTargets('bob-123', [Color.Blue])).toEqual([]); // out players send nothing
+  });
+
+  it('the next round brings everyone back in', () => {
+    const l = playing(3);
+    l.result('bob-123', 'toppedOut');
+    l.result('alice-1', 'toppedOut');
+    expect(l.outPlayers.sort()).toEqual(['alice-1', 'bob-123']);
+    l.nextRound(9);
+    expect(l.outPlayers).toEqual([]);
+  });
+
+  it('someone who leaves for good is knocked out, and the match goes on without them', () => {
+    const l = playing(3);
+    l.disconnect('carol-1');
+    const r = l.abandon('carol-1')!;
+    expect(r.out).toEqual({ id: 'carol-1', reason: 'disconnect' });
+    expect(r.round).toBeNull();
+    l.remove('carol-1');
+    expect(l.inMatch).toBe(true);
+    // Alice and Bob carry on as a 2-player match.
+    const end = l.result('bob-123', 'cleared')!.round!;
+    expect(Object.keys(end.wins).sort()).toEqual(['alice-1', 'bob-123']);
+    expect(l.nextRound(3)!.players.map(p => p.id)).toEqual(['alice-1', 'bob-123']);
+  });
 });
 
 describe('protocol', () => {
@@ -208,6 +279,8 @@ describe('protocol', () => {
     expect(parseClientMessage('{"t":"join","playerId":"abc123","name":"  Kris  "}')).toEqual({ t: 'join', playerId: 'abc123', name: 'Kris' });
     expect(parseClientMessage('{"t":"setup","level":21,"speed":"med"}')).toBeNull();
     expect(parseClientMessage('{"t":"setup","level":7,"speed":"warp"}')).toBeNull();
+    expect(parseClientMessage('{"t":"garbage","colors":[0,1],"firstColors":[1]}')).toEqual({ t: 'garbage', colors: [0, 1], firstColors: [1] });
+    expect(parseClientMessage('{"t":"garbage","colors":[0,1]}')).toBeNull(); // firstColors required
     expect(parseClientMessage('not json')).toBeNull();
     expect(parseClientMessage('{"t":"hack"}')).toBeNull();
   });
