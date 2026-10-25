@@ -28,6 +28,7 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - Attacking: it values moves that send garbage, recognizes "chain ready" boards (one more half would clear 2+ lines) and builds toward them, and gets more aggressive the longer it goes without attacking (`attackEveryS`: Easy 60 s, Normal 40 s, Hard 25 s). Firing a chain is always worth more than holding it.
 - Panic mode: when capsule pieces (not germs) are within 6 rows of the top, it drops chain building and weighs stack height 5× — survive first.
 - Human-ish timing: reaction time varies ±40%, and it sometimes hesitates 0.5–1.5 s (Easy 30%, Normal 8%, Hard never).
+- Speed (2026-10-25 retune): all skills soft-drop, including down to the right height before a tuck/slide-under (it used to wait out gravity there — that was most of its time). Average time to clear its own board at Med: Easy ~3.7 min (L5) / ~5.3 min (L10), Normal ~2.1 / ~3.4 min, Hard ~1.2 / ~2.2 min. Hard makes no deliberate mistakes.
 - One decision costs ~5–15 ms; if it ever causes a hitch on slow machines, spread the search over frames.
 - Garbage placement stays random (spread-out columns), not aimed at tall stacks. "Garbage prefers tall columns" could be an optional room setting later.
 - You and the CPU have separate level and speed. Fast garbage is a menu toggle in Vs CPU.

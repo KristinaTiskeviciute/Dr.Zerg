@@ -379,7 +379,9 @@ export class CpuController {
     }
     const nextMove = path.find(m => m !== 'down');
     if (!nextMove) return { softDrop: this.skill.softDrop }; // only falling left
-    if (path[0] === 'down') return {}; // wait for gravity to bring it to the right height
+    // A tuck or slide-under later in the path: drop to the right height first. Soft drop moves at
+    // most one row per step and we re-plan every step, so it stops in time for the maneuver.
+    if (path[0] === 'down') return { softDrop: this.skill.softDrop };
     if (this.actionTimer > 0) return {};
     this.actionTimer = this.skill.moveMs;
     switch (nextMove) {

@@ -201,7 +201,10 @@ canvas { display: block; image-rendering: pixelated; }
 .hud div { display: flex; flex-direction: column; gap: 8px; }
 .hud strong { font-size: 22px; font-weight: normal; text-shadow: 3px 3px 0 var(--edge); }
 #hud-germs { color: var(--yellow); }
-#hud-opp-germs { font-size: 16px; }
+.hud .germ-counts { display: flex; flex-direction: row; gap: 22px; }
+.hud .germ-counts > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.hud .germ-counts .who { font-size: 8px; color: var(--muted); max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#hud-opp-germs { color: #ff8e7a; }
 
 .pips-row { display: flex; flex-direction: row !important; align-items: center; gap: 10px; font-size: 10px; }
 .pips { display: inline-flex; gap: 6px; }

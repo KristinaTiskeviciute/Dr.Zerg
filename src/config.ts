@@ -63,16 +63,16 @@ export interface CpuSkill {
 }
 export const CPU_SKILLS: Record<CpuSkillName, CpuSkill> = {
   easy: {
-    thinkMs: 700, hesitateChance: 0.3, moveMs: 230, mistakeChance: 0.3, topChoices: 5,
-    softDrop: false, lookahead: true, chainBuilding: 0.5, attackEveryS: 60,
+    thinkMs: 500, hesitateChance: 0.2, moveMs: 160, mistakeChance: 0.2, topChoices: 4,
+    softDrop: true, lookahead: true, chainBuilding: 0.5, attackEveryS: 45,
   },
   normal: {
-    thinkMs: 350, hesitateChance: 0.08, moveMs: 120, mistakeChance: 0.12, topChoices: 3,
-    softDrop: false, lookahead: true, chainBuilding: 0.75, attackEveryS: 40,
+    thinkMs: 220, hesitateChance: 0.05, moveMs: 90, mistakeChance: 0.06, topChoices: 3,
+    softDrop: true, lookahead: true, chainBuilding: 0.75, attackEveryS: 30,
   },
   hard: {
-    thinkMs: 120, hesitateChance: 0, moveMs: 60, mistakeChance: 0.02, topChoices: 2,
-    softDrop: true, lookahead: true, chainBuilding: 1, attackEveryS: 25,
+    thinkMs: 60, hesitateChance: 0, moveMs: 40, mistakeChance: 0, topChoices: 1,
+    softDrop: true, lookahead: true, chainBuilding: 1, attackEveryS: 20,
   },
 };
 

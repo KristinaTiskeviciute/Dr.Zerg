@@ -244,7 +244,7 @@ function startCpuMatch(): void {
 
 function setOpponentLabels(name: string, boardLabel: string): void {
   $('#pips-opp-name').textContent = name;
-  $('#hud-opp-germs-label').textContent = `${name} germs`;
+  $('#hud-opp-germs-label').textContent = name;
   $('#opp-label').textContent = boardLabel;
 }
 

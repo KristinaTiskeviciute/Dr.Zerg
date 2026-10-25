@@ -157,8 +157,13 @@
           </div>
           <div><span class="label">Level</span><strong id="hud-level">0</strong></div>
           <div><span class="label">Speed</span><strong id="hud-speed">Med</strong></div>
-          <div><span class="label">Germs</span><strong id="hud-germs">0</strong></div>
-          <div class="match-only"><span class="label" id="hud-opp-germs-label">CPU germs</span><strong id="hud-opp-germs">0</strong></div>
+          <div>
+            <span class="label">Germs</span>
+            <div class="germ-counts">
+              <div><strong id="hud-germs">0</strong><span class="who match-only">You</span></div>
+              <div class="match-only"><strong id="hud-opp-germs">0</strong><span class="who" id="hud-opp-germs-label">CPU</span></div>
+            </div>
+          </div>
           <div class="match-only fast-flag" id="hud-fast">Fast garbage: ON</div>
           <p class="controls small">
             <kbd>←</kbd><kbd>→</kbd> move<br /><kbd>↑</kbd><kbd>X</kbd> rotate ↻<br /><kbd>Z</kbd> rotate ↺<br /><kbd>↓</kbd> drop<br /><kbd>P</kbd> pause
