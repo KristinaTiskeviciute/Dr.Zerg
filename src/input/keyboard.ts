@@ -79,6 +79,9 @@ export class KeyboardInput {
       rotateCW: this.pressed.has('rotateCW'),
       rotateCCW: this.pressed.has('rotateCCW'),
       softDrop: !this.blocked.has('softDrop') && (this.held.has('softDrop') || this.pressed.has('softDrop')),
+      downHeld: this.held.has('softDrop') || this.pressed.has('softDrop'),
+      holdLeft: this.horizontal === 'left' && this.held.has('left'),
+      holdRight: this.horizontal === 'right' && this.held.has('right'),
     };
 
     if (this.horizontal) {

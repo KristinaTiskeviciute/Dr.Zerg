@@ -40,6 +40,14 @@ export interface GameOptions {
 export interface StepInput {
   left?: boolean;
   right?: boolean;
+  /** Left/right is being held down (a blocked held move is retried every step, so it slides into gaps). */
+  holdLeft?: boolean;
+  holdRight?: boolean;
+  /**
+   * Down is physically held, even one held over from the previous capsule (which softDrop
+   * ignores). Used for Fast garbage speed-ups after the capsule locks. Defaults to softDrop.
+   */
+  downHeld?: boolean;
   rotateCW?: boolean;
   rotateCCW?: boolean;
   softDrop?: boolean;
@@ -84,6 +92,8 @@ export class Game {
   private lockTimer = 0;
   /** Time left that a freshly spawned capsule hangs at the top before gravity starts. */
   private spawnHold = 0;
+  /** A held left/right that was blocked: retried every step until it goes through. */
+  private pushing: 'left' | 'right' | null = null;
   private phaseTimer = 0;
   private chainStep = 0;
   private chainLineColors: Color[] = [];
@@ -170,8 +180,17 @@ export class Game {
       if (r) { c = r; this.emit({ type: 'rotate' }); }
     }
     if (input.left !== input.right) {
-      const m = tryMove(board, c, 0, input.left ? -1 : 1);
+      const dir = input.left ? 'left' : 'right';
+      const m = tryMove(board, c, 0, dir === 'left' ? -1 : 1);
       if (m) { c = m; this.emit({ type: 'move' }); }
+      this.pushing = m ? null : dir;
+    } else if (this.pushing && (this.pushing === 'left' ? input.holdLeft : input.holdRight)) {
+      // Pushing against something while holding: retry every step (like the original), so the
+      // capsule slips into a gap the moment it lines up, even when falling fast.
+      const m = tryMove(board, c, 0, this.pushing === 'left' ? -1 : 1);
+      if (m) { c = m; this.emit({ type: 'move' }); this.pushing = null; }
+    } else {
+      this.pushing = null;
     }
 
     // Just spawned: it hangs at the top for a moment (you can already rotate and move it).
@@ -217,7 +236,7 @@ export class Game {
 
   /** Loose halves falling after a clear. With Fast garbage on, holding Down speeds this up too. */
   private stepSettling(dt: number, input: StepInput): void {
-    const fast = this.fastGarbage && input.softDrop;
+    const fast = this.fastGarbage && (input.downHeld ?? input.softDrop);
     this.phaseTimer += dt * (fast ? FAST_GARBAGE_MULTIPLIER : 1);
     while (this.phaseTimer >= GRAVITY_STEP_MS) {
       this.phaseTimer -= GRAVITY_STEP_MS;
@@ -226,7 +245,7 @@ export class Game {
   }
 
   private stepGarbage(dt: number, input: StepInput): void {
-    const fast = this.fastGarbage && input.softDrop;
+    const fast = this.fastGarbage && (input.downHeld ?? input.softDrop);
     this.phaseTimer += dt * (fast ? FAST_GARBAGE_MULTIPLIER : 1);
     while (this.phaseTimer >= GARBAGE_FALL_STEP_MS) {
       this.phaseTimer -= GARBAGE_FALL_STEP_MS;
@@ -255,6 +274,7 @@ export class Game {
     this.fallTimer = 0;
     this.lockTimer = 0;
     this.spawnHold = hold ? ENTRY_DELAY_MS : 0;
+    this.pushing = null;
     this.phase = 'falling';
     this.emit({ type: 'spawn' });
   }
