@@ -8,7 +8,7 @@ import { Game, GameEvent } from './core/game';
 import { Match } from './core/match';
 import { randomSeed } from './core/rng';
 import { garbageTargets } from './core/targeting';
-import { COLORS } from './core/types';
+import { Color, COLORS } from './core/types';
 import { GamepadInput, NavDir } from './input/gamepad';
 import { KeyboardInput } from './input/keyboard';
 import { Rumble } from './input/rumble';
@@ -18,6 +18,7 @@ import { gameView } from './render/view';
 import {
   BoardSnapshot, EMOTES, makeRoomCode, normalizeRoomCode, RoundResult, START_COUNTDOWN_MS, StartInfo,
 } from './net/protocol';
+import { CpuRunner } from './net/cpus';
 import { encodeSnapshot, snapshotView } from './net/snapshot';
 import { VoiceChat } from './net/voice';
 import { ChatBox, isTyping, popEmote } from './ui/chat';
@@ -69,6 +70,8 @@ type Session =
 interface OnlineOpponent {
   id: string;
   name: string;
+  /** A CPU that this browser plays (its board comes from our worker, not the server). */
+  mine: boolean;
   snap: BoardSnapshot | null;
   /** When we last heard from them. */
   at: number;
@@ -136,10 +139,37 @@ function onlineHold(s: OnlineSession, now: number): 'result' | 'over' | 'reconne
   return null;
 }
 
+/**
+ * The CPUs this browser plays wait while the round is held for everyone (paused, someone away
+ * or quiet, round decided), but keep playing if your own board is over.
+ */
+function cpuHold(s: OnlineSession, now: number): boolean {
+  return !!s.result || !room.connected || !!s.away || !!s.pausedBy || !!staleOpponent(s, now);
+}
+
 /** An opponent still in the round that we haven't heard from for a while (null if none). */
 function staleOpponent(s: OnlineSession, now: number): OnlineOpponent | null {
   return s.opps.find(o => !o.out && now - o.at > STALE_MS) ?? null;
 }
+
+// --- CPU players in online rooms: each browser plays the ones the server gives it ---
+
+const cpuRunner = new CpuRunner({
+  onBoard: (id, snap) => {
+    if (session?.kind !== 'online') return;
+    const opp = session.opps.find(o => o.id === id);
+    if (opp) { opp.snap = snap; opp.at = performance.now(); }
+    room.send({ t: 'board', snap, as: id });
+  },
+  onGarbage: (id, colors, firstColors) => {
+    if (session?.kind !== 'online' || session.result) return;
+    room.send({ t: 'garbage', colors, firstColors, as: id });
+    blinkTargets(session, id, firstColors);
+  },
+  onOver: (id, outcome) => {
+    if (session?.kind === 'online') room.send({ t: 'result', outcome, as: id });
+  },
+});
 
 // --- Online room (lobby screen + connection) ---
 
@@ -155,6 +185,7 @@ const room = new OnlineRoom(settings, {
   inMatch: () => session?.kind === 'online',
   onLeave: error => {
     voice.leave();
+    cpuRunner.stop();
     showMenu();
     $('#menu-error').textContent = error ?? '';
   },
@@ -333,6 +364,7 @@ joinCode.addEventListener('keydown', e => { if (e.key === 'Enter') joinTypedRoom
 
 function showMenu(): void {
   session = null;
+  cpuRunner.stop();
   keyboard.enabled = false;
   audio.stopMusic();
   hideOverlay();
@@ -419,7 +451,7 @@ function startOnline(info: StartInfo): void {
     kind: 'online',
     game: new Game({ level: me.level, speed: me.speed, seed: info.seed, fastGarbage: info.settings.fastGarbage, playerSalt: me.id }),
     info,
-    opps: others.map(p => ({ id: p.id, name: p.name, snap: null, at: now, out: false })),
+    opps: others.map(p => ({ id: p.id, name: p.name, mine: p.runBy === room.me, snap: null, at: now, out: false })),
     startAt: now + info.startInMs,
     pausedBy: null,
     away: null,
@@ -427,7 +459,12 @@ function startOnline(info: StartInfo): void {
     resultSent: false,
     lastSent: { json: '', at: 0 },
   };
-  setupPlayers(['You', ...others.map(p => p.name)], others.map(p => `${p.name} · Lv ${p.level} · ${SPEED_LABEL[p.speed]}`));
+  setupPlayers(['You', ...others.map(p => p.name)], others.map(p =>
+    `${p.name}${p.cpu ? ` (CPU ${SKILL_LABEL[p.cpu]})` : ''} · Lv ${p.level} · ${SPEED_LABEL[p.speed]}`));
+  // The CPUs this browser plays this round.
+  cpuRunner.start(info.players.filter(p => p.cpu && p.runBy === room.me).map(p => ({
+    id: p.id, level: p.level, speed: p.speed, skill: p.cpu!, seed: info.seed, aiSeed: randomSeed(), fastGarbage: info.settings.fastGarbage,
+  })), session.startAt);
   $('#hud-fast').classList.toggle('hidden', !info.settings.fastGarbage);
   $('#hud-outbreak').classList.toggle('hidden', !(info.settings.outbreak && others.length >= 2));
   overlayKey = '';
@@ -449,6 +486,15 @@ function onMatchMessage(msg: MatchMessage): void {
       if (opp) { opp.snap = msg.snap; opp.at = now; }
       break;
     case 'garbage':
+      if (msg.to) {
+        // For a CPU this browser plays.
+        const k = s.opps.findIndex(o => o.id === msg.to && o.mine);
+        if (k >= 0 && !s.result) {
+          cpuRunner.garbage(msg.to, msg.colors);
+          opponents.fx(k).markIncoming();
+        }
+        break;
+      }
       // The server only sends garbage to the players it targeted.
       if (opp && !s.result) {
         s.game.receiveGarbage(msg.colors);
@@ -485,6 +531,7 @@ function onMatchMessage(msg: MatchMessage): void {
 
 function onOnlineRound(s: OnlineSession, r: RoundResult): void {
   s.result = r;
+  cpuRunner.sync(true, s.startAt);
   hideOverlay(); // leave the boards visible for a moment before the result
   overlayKey = 'result';
   audio.stopMusic();
@@ -528,9 +575,24 @@ function playAgainOnline(s: OnlineSession): void {
 
 function leaveOnlineMatch(): void {
   session = null;
+  cpuRunner.stop();
   keyboard.enabled = false;
   audio.stopMusic();
   room.backToLobby();
+}
+
+/**
+ * Blink the incoming preview of whoever a chain's garbage goes to. The server picks the
+ * targets; this works out the same ones just for the effect.
+ */
+function blinkTargets(s: OnlineSession, from: string, firstColors: Color[]): void {
+  const seats = s.info.players.map(p => p.id);
+  const alive = seats.map(id => (id === room.me ? s.game.phase !== 'lost' : !s.opps.find(o => o.id === id)?.out));
+  for (const t of garbageTargets(seats.indexOf(from), alive, firstColors, s.info.settings.outbreak)) {
+    if (seats[t] === room.me) continue; // your own warning comes with the garbage itself
+    const k = s.opps.findIndex(o => o.id === seats[t]);
+    if (k >= 0) opponents.fx(k).markIncoming();
+  }
 }
 
 /** Your board ended on its own (cleared or topped out): tell the room. The server decides the round. */
@@ -553,12 +615,16 @@ function sendBoard(s: OnlineSession, now: number): void {
 // Browsers stop requestAnimationFrame in hidden tabs, but timers keep running (about once a
 // second). This keeps the heartbeat going so a backgrounded tab doesn't look disconnected.
 setInterval(() => {
-  if (session?.kind === 'online') sendBoard(session, performance.now());
+  if (session?.kind !== 'online') return;
+  const now = performance.now();
+  sendBoard(session, now);
+  cpuRunner.sync(cpuHold(session, now), session.startAt);
 }, SNAPSHOT_KEEPALIVE_MS);
 
 /** Once per frame during an online round: send your board, and show the right overlay. */
 function updateOnline(s: OnlineSession, now: number): void {
   sendBoard(s, now);
+  cpuRunner.sync(cpuHold(s, now), s.startAt);
 
   const hold = onlineHold(s, now);
   if (hold === 'result') return; // result overlay is already up
@@ -969,14 +1035,7 @@ function step(): void {
       for (const e of events) {
         if (e.type !== 'garbageOut') continue;
         room.send({ t: 'garbage', colors: e.colors, firstColors: e.firstColors });
-        // The server picks the targets; work out the same ones here just to blink their incoming preview.
-        const s = session;
-        const seats = s.info.players.map(p => p.id);
-        const alive = seats.map(id => id === room.me || !s.opps.find(o => o.id === id)?.out);
-        for (const t of garbageTargets(seats.indexOf(room.me), alive, e.firstColors, s.info.settings.outbreak)) {
-          const k = s.opps.findIndex(o => o.id === seats[t]);
-          if (k >= 0) opponents.fx(k).markIncoming();
-        }
+        blinkTargets(session, room.me, e.firstColors);
       }
     }
     if (g.isOver) (session.kind === 'solo' ? onSoloOver : onOnlineOver)(g);

@@ -36,6 +36,13 @@ export class Room extends Server<Env> {
     const id = conn.state?.playerId;
     if (!id) return this.send(conn, { t: 'error', code: 'notAllowed', message: 'Join the room first.' });
 
+    // A CPU's board, garbage or result, from the browser that plays it.
+    let who = id;
+    if ((msg.t === 'board' || msg.t === 'garbage' || msg.t === 'result') && msg.as) {
+      if (!this.lobby.runsCpu(id, msg.as)) return;
+      who = msg.as;
+    }
+
     // In-match messages: relay to the other player, or decide the round. Chat goes to everyone.
     switch (msg.t) {
       case 'chat':
@@ -56,14 +63,17 @@ export class Room extends Server<Env> {
         return;
       }
       case 'board':
-        if (this.lobby.inMatch) this.broadcastJson({ t: 'board', from: id, snap: msg.snap }, [conn.id]);
+        if (this.lobby.inMatch) this.broadcastJson({ t: 'board', from: who, snap: msg.snap }, [conn.id]);
         return;
       case 'garbage': {
-        // The server picks the targets, so every player agrees who got hit.
-        const targets = new Set(this.lobby.garbageTargets(id, msg.firstColors));
-        const out: ServerMessage = { t: 'garbage', from: id, colors: msg.colors };
-        for (const c of this.getConnections<ConnState>()) {
-          if (c.state && targets.has(c.state.playerId)) this.send(c, out);
+        // The server picks the targets, so every player agrees who got hit. Garbage for a CPU
+        // goes to the browser that plays it.
+        for (const target of this.lobby.garbageTargets(who, msg.firstColors)) {
+          const runner = this.lobby.runnerOf(target);
+          const out: ServerMessage = { t: 'garbage', from: who, colors: msg.colors, ...(runner && { to: target }) };
+          for (const c of this.getConnections<ConnState>()) {
+            if (c.state?.playerId === (runner ?? target)) this.send(c, out);
+          }
         }
         return;
       }
@@ -73,7 +83,7 @@ export class Room extends Server<Env> {
         }
         return;
       case 'result': {
-        const r = this.lobby.result(id, msg.outcome);
+        const r = this.lobby.result(who, msg.outcome);
         if (r) this.announce(r);
         return;
       }
@@ -85,6 +95,9 @@ export class Room extends Server<Env> {
       case 'setup': res = this.lobby.setup(id, msg.level, msg.speed); break;
       case 'ready': res = this.lobby.setReady(id, msg.ready); break;
       case 'voice': res = this.lobby.setVoice(id, msg.on); break;
+      case 'addCpu': res = this.lobby.addCpu(id, `cpu-${crypto.randomUUID().slice(0, 8)}`); break;
+      case 'cpu': res = this.lobby.setCpu(id, msg.id, msg); break;
+      case 'removeCpu': res = this.lobby.removeCpu(id, msg.id); break;
       case 'settings': res = this.lobby.setSettings(id, { fastGarbage: msg.fastGarbage, outbreak: msg.outbreak }); break;
       case 'backToLobby':
         this.clearNextRound();
@@ -124,6 +137,11 @@ export class Room extends Server<Env> {
       this.removals.delete(id);
       if (this.lobby.isConnected(id)) return;
       // Gone for good: they're out of the match (with two players the other one wins); the seat is freed.
+      // The CPUs their browser was playing are out of this round too; someone else plays them next round.
+      for (const cpu of this.lobby.cpusRunBy(id)) {
+        const rc = this.lobby.abandon(cpu);
+        if (rc) this.announce(rc);
+      }
       const r = this.lobby.abandon(id);
       if (r) this.announce(r);
       this.lobby.remove(id);

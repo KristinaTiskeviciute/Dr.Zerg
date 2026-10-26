@@ -128,6 +128,12 @@ button:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
 .players .tag.ready { background: #2f8f4e; }
 .players .tag.host { background: var(--yellow); color: #2b1a00; }
 .players .tag.away { background: #6b2b2b; }
+.players .tag.cpu { background: #5a3d9a; }
+.players li.cpu-row { gap: 6px; }
+.players li.cpu-row .who::after { content: ' · CPU'; color: var(--muted); font-size: 8px; }
+.players button.mini { font-size: 8px; padding: 6px 7px 5px; flex: none; }
+.players li.cpu-row .meta { min-width: 40px; text-align: center; }
+button.add-cpu { align-self: center; font-size: 9px; color: var(--yellow); }
 .panel-cols.two { grid-template-columns: 1fr 1fr; }
 .lobby-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 button.on#ready-btn { background: #2f8f4e; color: var(--text); }

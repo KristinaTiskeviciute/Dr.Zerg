@@ -1,7 +1,12 @@
-import { Speed } from '../config';
+import { CpuSkillName, MAX_LEVEL, MIN_LEVEL, Speed } from '../config';
 import { ConnectionStatus, playerId, RoomConnection } from '../net/client';
 import { ClientMessage, LobbyState, RtcSignal, MAX_PLAYERS, MIN_PLAYERS, ServerMessage, StartInfo } from '../net/protocol';
-import { $, saveSettings, Settings, SPEED_LABEL } from './dom';
+import { $, saveSettings, Settings, SKILL_LABEL, SPEED_LABEL } from './dom';
+
+const SKILLS: CpuSkillName[] = ['easy', 'normal', 'hard'];
+const SPEEDS: Speed[] = ['low', 'med', 'high'];
+/** The next option in a list, wrapping around (for the CPU buttons that cycle). */
+const next = <T>(list: T[], v: T): T => list[(list.indexOf(v) + 1) % list.length];
 
 const SLOW_CONNECT_MS = 5000;
 
@@ -122,6 +127,8 @@ export class OnlineRoom {
         if (msg.lobby.phase === 'playing' && this.mine() && !this.cb.inMatch() && !this.forfeited) {
           this.forfeited = true;
           this.send({ t: 'result', outcome: 'forfeit' });
+          // The CPUs this browser was playing can't go on either.
+          for (const p of msg.lobby.players) if (p.cpu && p.runBy === this.me) this.send({ t: 'result', outcome: 'forfeit', as: p.id });
         }
         if (msg.lobby.phase === 'lobby') this.forfeited = false;
         this.cb.onLobby(msg.lobby);
@@ -209,6 +216,21 @@ export class OnlineRoom {
       b.addEventListener('click', () => this.conn?.send({ t: 'settings', outbreak: b.dataset.value === 'on' }));
     }
     $('#ready-btn').addEventListener('click', () => this.conn?.send({ t: 'ready', ready: !this.mine()?.ready }));
+    $('#add-cpu').addEventListener('click', () => this.conn?.send({ t: 'addCpu' }));
+    // The host's buttons on each CPU row: skill, level −/+, speed, remove.
+    $('#lobby-players').addEventListener('click', e => {
+      const b = (e.target as Element).closest<HTMLButtonElement>('button[data-action]');
+      const cpu = this.lobby?.players.find(p => p.id === b?.dataset.id);
+      if (!b || !cpu?.cpu) return;
+      const id = cpu.id;
+      switch (b.dataset.action) {
+        case 'skill': return this.conn?.send({ t: 'cpu', id, skill: next(SKILLS, cpu.cpu) });
+        case 'speed': return this.conn?.send({ t: 'cpu', id, speed: next(SPEEDS, cpu.speed) });
+        case 'down': return this.conn?.send({ t: 'cpu', id, level: Math.max(MIN_LEVEL, cpu.level - 1) });
+        case 'up': return this.conn?.send({ t: 'cpu', id, level: Math.min(MAX_LEVEL, cpu.level + 1) });
+        case 'remove': return this.conn?.send({ t: 'removeCpu', id });
+      }
+    });
     $('#start-online').addEventListener('click', () => this.conn?.send({ t: 'start' }));
     $('#leave-room').addEventListener('click', () => this.leave());
   }
@@ -240,26 +262,55 @@ export class OnlineRoom {
     }
     $('#fast-note').textContent = isHost ? '(you decide, as host)' : '(host decides)';
 
-    // Players
+    // Players (keeping the selection on a CPU button when the list is redrawn, for controllers)
     const list = $('#lobby-players');
+    const focusedKey = list.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.key : undefined;
+    const canEditCpus = isHost && lobby?.phase === 'lobby';
     const items: HTMLElement[] = (lobby?.players ?? []).map(p => {
       const li = document.createElement('li');
       const who = document.createElement('span');
       who.className = 'who';
       who.textContent = p.name + (p.id === this.me ? ' (you)' : '');
-      const meta = document.createElement('span');
-      meta.className = 'meta';
-      meta.textContent = `Lv ${p.level} · ${SPEED_LABEL[p.speed]}`;
-      li.append(who, meta);
+      li.append(who);
       const tag = (text: string, cls: string) => {
         const t = document.createElement('span');
         t.className = `tag ${cls}`;
         t.textContent = text;
         li.append(t);
       };
+      if (p.cpu && canEditCpus) {
+        li.classList.add('cpu-row');
+        const button = (text: string, action: string, title: string, disabled = false) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'mini';
+          b.textContent = text;
+          b.title = title;
+          b.disabled = disabled;
+          b.dataset.action = action;
+          b.dataset.id = p.id;
+          b.dataset.key = `${p.id}:${action}`;
+          li.append(b);
+        };
+        button(SKILL_LABEL[p.cpu], 'skill', 'Skill (click to change)');
+        button('−', 'down', 'Level down', p.level <= MIN_LEVEL);
+        const lv = document.createElement('span');
+        lv.className = 'meta';
+        lv.textContent = `Lv ${p.level}`;
+        li.append(lv);
+        button('+', 'up', 'Level up', p.level >= MAX_LEVEL);
+        button(SPEED_LABEL[p.speed], 'speed', 'Speed (click to change)');
+        button('✕', 'remove', 'Remove this CPU');
+        return li;
+      }
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = `Lv ${p.level} · ${SPEED_LABEL[p.speed]}` + (p.cpu ? ` · ${SKILL_LABEL[p.cpu]}` : '');
+      li.append(meta);
+      if (p.cpu) tag('CPU', 'cpu');
       if (p.id === lobby!.hostId) tag('HOST', 'host');
       if (!p.connected) tag('AWAY', 'away');
-      else if (p.ready) tag('READY', 'ready');
+      else if (p.ready && !p.cpu) tag('READY', 'ready');
       return li;
     });
     if (items.length < MAX_PLAYERS) {
@@ -271,6 +322,9 @@ export class OnlineRoom {
       items.push(li);
     }
     list.replaceChildren(...items);
+    if (focusedKey) list.querySelector<HTMLElement>(`[data-key="${focusedKey}"]`)?.focus();
+    const addCpu = $<HTMLButtonElement>('#add-cpu');
+    addCpu.classList.toggle('hidden', !canEditCpus || (lobby?.players.length ?? 0) >= MAX_PLAYERS);
 
     // Buttons
     const ready = $<HTMLButtonElement>('#ready-btn');

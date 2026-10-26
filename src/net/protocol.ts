@@ -2,7 +2,7 @@
 // The server never simulates the game: it keeps room state (players, host, settings, seed)
 // and passes messages along.
 
-import { MAX_LEVEL, MIN_LEVEL, Speed } from '../config';
+import { CPU_SKILLS, CpuSkillName, MAX_LEVEL, MIN_LEVEL, Speed } from '../config';
 
 export const MAX_PLAYERS = 4;
 export const MIN_PLAYERS = 2;
@@ -52,6 +52,10 @@ export interface LobbyPlayer {
   connected: boolean;
   /** In the voice chat. */
   voice: boolean;
+  /** A CPU player (its skill), or null for a person. CPUs are always ready. */
+  cpu: CpuSkillName | null;
+  /** CPUs: which person's browser plays this CPU in the current match (null in the lobby). */
+  runBy: string | null;
 }
 
 export interface RoomSettings {
@@ -94,6 +98,10 @@ export type ClientMessage =
   | { t: 'backToLobby' }
   /** After a match: ready for another; it starts as soon as everyone has said so. */
   | { t: 'playAgain' }
+  /** Host: add a CPU player, change one (unset fields stay), or remove one. Lobby only. */
+  | { t: 'addCpu' }
+  | { t: 'cpu'; id: string; level?: number; speed?: Speed; skill?: CpuSkillName }
+  | { t: 'removeCpu'; id: string }
   /** Chat and emotes (only offered outside of play: lobby, pause, between rounds). */
   | { t: 'chat'; text: string }
   | { t: 'emote'; e: number }
@@ -101,18 +109,18 @@ export type ClientMessage =
   | { t: 'voice'; on: boolean }
   /** Voice chat setup for one other player. */
   | { t: 'rtc'; to: string; data: RtcSignal }
-  // During a match:
-  | { t: 'board'; snap: BoardSnapshot }
+  // During a match. `as`: sent on behalf of a CPU this browser plays.
+  | { t: 'board'; snap: BoardSnapshot; as?: string }
   /** firstColors = the colors of the chain's first clear; the server uses them to pick targets. */
-  | { t: 'garbage'; colors: number[]; firstColors: number[] }
-  | { t: 'result'; outcome: Outcome }
+  | { t: 'garbage'; colors: number[]; firstColors: number[]; as?: string }
+  | { t: 'result'; outcome: Outcome; as?: string }
   | { t: 'pause'; paused: boolean };
 
 export interface StartInfo {
   seed: number;
   /** Start after this long (relative, so clocks don't need to agree). */
   startInMs: number;
-  players: { id: string; name: string; level: number; speed: Speed }[];
+  players: { id: string; name: string; level: number; speed: Speed; cpu: CpuSkillName | null; runBy: string | null }[];
   settings: RoomSettings;
   /** Round number in this match (1, 2, 3) and round wins so far, by player id. */
   round: number;
@@ -144,7 +152,8 @@ export type ServerMessage =
   | { t: 'rtc'; from: string; data: RtcSignal }
   // During a match:
   | { t: 'board'; from: string; snap: BoardSnapshot }
-  | { t: 'garbage'; from: string; colors: number[] }
+  /** Garbage for you, or (to) for a CPU your browser plays. */
+  | { t: 'garbage'; from: string; colors: number[]; to?: string }
   /** A player was knocked out of the round (topped out, left the round, or gone for good). */
   | { t: 'out'; id: string; reason: Outcome | 'disconnect' }
   | ({ t: 'round' } & RoundResult)
@@ -212,18 +221,37 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return typeof m.on === 'boolean' ? { t: 'voice', on: m.on } : null;
     case 'rtc':
       return isPlayerId(m.to) && isRtcSignal(m.data) ? { t: 'rtc', to: m.to, data: m.data } : null;
+    case 'addCpu':
+      return { t: 'addCpu' };
+    case 'cpu': {
+      if (!isPlayerId(m.id)) return null;
+      if (m.level !== undefined && !isLevel(m.level)) return null;
+      if (m.speed !== undefined && !isSpeed(m.speed)) return null;
+      if (m.skill !== undefined && !isSkill(m.skill)) return null;
+      return {
+        t: 'cpu', id: m.id,
+        ...(m.level !== undefined && { level: m.level as number }),
+        ...(m.speed !== undefined && { speed: m.speed as Speed }),
+        ...(m.skill !== undefined && { skill: m.skill as CpuSkillName }),
+      };
+    }
+    case 'removeCpu':
+      return isPlayerId(m.id) ? { t: 'removeCpu', id: m.id } : null;
     case 'board':
-      return isSnapshot(m.snap) ? { t: 'board', snap: m.snap } : null;
+      if (!isAs(m.as)) return null;
+      return isSnapshot(m.snap) ? { t: 'board', snap: m.snap, ...(m.as !== undefined && { as: m.as }) } : null;
     case 'garbage': {
       const colorList = (v: unknown, max: number): v is number[] =>
         Array.isArray(v) && v.length >= 1 && v.length <= max && v.every(isColor);
+      if (!isAs(m.as)) return null;
       return colorList(m.colors, 4) && colorList(m.firstColors, 3)
-        ? { t: 'garbage', colors: m.colors, firstColors: m.firstColors }
+        ? { t: 'garbage', colors: m.colors, firstColors: m.firstColors, ...(m.as !== undefined && { as: m.as }) }
         : null;
     }
     case 'result':
+      if (!isAs(m.as)) return null;
       return m.outcome === 'cleared' || m.outcome === 'toppedOut' || m.outcome === 'forfeit'
-        ? { t: 'result', outcome: m.outcome }
+        ? { t: 'result', outcome: m.outcome, ...(m.as !== undefined && { as: m.as }) }
         : null;
     case 'pause':
       return typeof m.paused === 'boolean' ? { t: 'pause', paused: m.paused } : null;
@@ -232,6 +260,9 @@ export function parseClientMessage(raw: string): ClientMessage | null {
   }
 }
 
+const isSkill = (v: unknown): v is CpuSkillName => typeof v === 'string' && v in CPU_SKILLS;
+/** Optional "on behalf of this CPU" id. */
+const isAs = (v: unknown) => v === undefined || isPlayerId(v);
 const isPlayerId = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(v);
 const isShortString = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max;
 const isOptional = (v: unknown, check: (v: unknown) => boolean) => v === undefined || v === null || check(v);

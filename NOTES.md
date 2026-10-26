@@ -93,6 +93,12 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - **Hosting:** Cloudflare Workers + Durable Objects (via `partyserver`), frontend and relay in one `wrangler deploy`. Location hint: eastern North America.
 - **New seed every round** of best-of-3.
 
+## CPU players in online rooms
+- The host adds CPUs in the lobby (seats count toward the 4); each has its own skill, level and speed. CPUs are always ready, named after the germs.
+- The server never simulates: each round it gives every CPU to one of the people in the room, spreading them evenly (`assignCpus`, fewest first). That browser plays it in a Web Worker (`src/net/cpu-worker.ts`), so it keeps going in a background tab, and sends its board/garbage/result `as` the CPU (the server checks `runsCpu`). Garbage aimed at a CPU goes to its runner with `to`.
+- CPUs wait whenever the round is held for everyone (pause, away, quiet, result) but keep playing if their runner's own board is over.
+- Someone leaves for good: the CPUs they were playing are knocked out for that round, and go to someone else next round. A rejoin mid-round forfeits your CPUs along with you. Only CPUs left = empty room.
+
 ## Chat and emotes (online)
 - A tab docked at the right edge in online rooms (lobby and matches); collapsible, remembered per browser, with an unread count while collapsed. The page keeps room for it (`--chat-room`), except in narrow windows where it covers the game.
 - Always readable, but typing and emotes only work outside of play: lobby, pause, result screens. While anyone's playing the text box and emotes are disabled.

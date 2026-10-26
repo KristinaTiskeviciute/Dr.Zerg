@@ -1,7 +1,7 @@
 // Room state for one game room: who's in, who's host, settings, ready flags, starting.
 // Pure logic (no Cloudflare APIs) so it can be unit-tested; server/index.ts wires it up.
 
-import { ROUNDS_TO_WIN, Speed } from '../src/config';
+import { CpuSkillName, ROUNDS_TO_WIN, Speed } from '../src/config';
 import { garbageTargets } from '../src/core/targeting';
 import { Color } from '../src/core/types';
 import {
@@ -25,6 +25,9 @@ export interface Report {
 }
 
 export type Result<T = void> = { ok: true; value: T } | { ok: false; code: ErrorCode; message: string };
+
+/** CPU players are named after the germs. */
+export const CPU_NAMES = ['Spike', 'Buzz', 'Peep'];
 
 const ok = <T>(value: T): Result<T> => ({ ok: true, value });
 const fail = (code: ErrorCode, message: string): Result<never> => ({ ok: false, code, message });
@@ -59,7 +62,7 @@ export class Lobby {
     }
     if (this.phase === 'playing') return fail('inProgress', 'A game is already being played in this room.');
     if (this.players.length >= MAX_PLAYERS) return fail('full', 'This room is full.');
-    this.players.push({ id, name, ready: false, level: 5, speed: 'med', connected: true, voice: false });
+    this.players.push({ id, name, ready: false, level: 5, speed: 'med', connected: true, voice: false, cpu: null, runBy: null });
     this.hostId ??= id;
     return ok(undefined);
   }
@@ -71,6 +74,68 @@ export class Lobby {
     p.connected = false;
     p.voice = false; // their voice connections are gone; they rejoin voice when they're back
     if (this.phase === 'lobby') p.ready = false;
+  }
+
+  /** Host adds a CPU player (lobby only, while there's a free seat). */
+  addCpu(id: string, cpuId: string): Result {
+    if (id !== this.hostId) return fail('notAllowed', 'Only the host can add CPU players.');
+    if (this.phase !== 'lobby') return fail('notAllowed', "Can't change that now.");
+    if (this.players.length >= MAX_PLAYERS) return fail('full', 'This room is full.');
+    const used = new Set(this.players.map(p => p.name));
+    const name = CPU_NAMES.find(n => !used.has(n)) ?? 'CPU';
+    this.players.push({ id: cpuId, name, ready: true, level: 5, speed: 'med', connected: true, voice: false, cpu: 'normal', runBy: null });
+    return ok(undefined);
+  }
+
+  /** Host changes a CPU's level, speed or skill (unset fields stay as they are). */
+  setCpu(id: string, cpuId: string, change: { level?: number; speed?: Speed; skill?: CpuSkillName }): Result {
+    const p = this.find(cpuId);
+    if (id !== this.hostId || !p?.cpu || this.phase !== 'lobby') return fail('notAllowed', "Can't change that now.");
+    if (change.level !== undefined) p.level = change.level;
+    if (change.speed !== undefined) p.speed = change.speed;
+    if (change.skill !== undefined) p.cpu = change.skill;
+    return ok(undefined);
+  }
+
+  removeCpu(id: string, cpuId: string): Result {
+    const p = this.find(cpuId);
+    if (id !== this.hostId || !p?.cpu || this.phase !== 'lobby') return fail('notAllowed', "Can't change that now.");
+    this.players = this.players.filter(x => x.id !== cpuId);
+    return ok(undefined);
+  }
+
+  /** True if `id`'s browser plays CPU `cpuId` in the current match. */
+  runsCpu(id: string, cpuId: string): boolean {
+    const p = this.find(cpuId);
+    return this.inMatch && !!p?.cpu && p.runBy === id;
+  }
+
+  /** The CPUs `id`'s browser plays in the current match. */
+  cpusRunBy(id: string): string[] {
+    return this.inMatch ? this.players.filter(p => p.cpu && p.runBy === id).map(p => p.id) : [];
+  }
+
+  /** The person whose browser plays this CPU (null if it's not a CPU or nobody does). */
+  runnerOf(cpuId: string): string | null {
+    return this.find(cpuId)?.runBy ?? null;
+  }
+
+  /**
+   * Spread the CPUs over the people who are here: each CPU goes to whoever runs the fewest so
+   * far, so with two people and two CPUs each runs one. Ties go round the seats, starting one
+   * seat later each round, so a lone CPU isn't always on the host's browser.
+   */
+  private assignCpus(): void {
+    const here = this.players.filter(p => !p.cpu && p.connected);
+    const shift = here.length ? ((this.match?.round ?? 1) - 1) % here.length : 0;
+    const people = [...here.slice(shift), ...here.slice(0, shift)];
+    const load = new Map(people.map(p => [p.id, 0]));
+    for (const cpu of this.players.filter(p => p.cpu)) {
+      let best: string | null = null;
+      for (const person of people) if (best === null || load.get(person.id)! < load.get(best)!) best = person.id;
+      cpu.runBy = best;
+      if (best) load.set(best, load.get(best)! + 1);
+    }
   }
 
   /** Joined or left the voice chat (any time, also mid-match). */
@@ -95,7 +160,8 @@ export class Lobby {
    */
   remove(id: string): void {
     this.players = this.players.filter(p => p.id !== id);
-    if (this.hostId === id) this.hostId = this.players[0]?.id ?? null;
+    if (!this.players.some(p => !p.cpu)) this.players = []; // only CPUs left: the room is empty
+    if (this.hostId === id) this.hostId = this.players.find(p => !p.cpu)?.id ?? null;
     if (this.match) {
       delete this.match.wins[id];
       this.match.out.delete(id);
@@ -108,7 +174,7 @@ export class Lobby {
   }
 
   get isEmpty(): boolean {
-    return this.players.every(p => !p.connected);
+    return this.players.every(p => p.cpu || !p.connected);
   }
 
   setup(id: string, level: number, speed: Speed): Result {
@@ -154,6 +220,7 @@ export class Lobby {
     this.match = {
       round: 1, wins: Object.fromEntries(this.players.map(p => [p.id, 0])), roundOver: false, out: new Set(),
     };
+    this.assignCpus();
     return ok(this.startInfo(seed));
   }
 
@@ -195,6 +262,7 @@ export class Lobby {
     m.round++;
     m.roundOver = false;
     m.out.clear();
+    this.assignCpus(); // someone may have left since last round
     return this.startInfo(seed);
   }
 
@@ -205,7 +273,7 @@ export class Lobby {
   abandon(id: string): Report | null {
     const m = this.match;
     if (!this.inMatch || !m) return null;
-    if (this.players.length <= 2) {
+    if (this.players.length <= 2 && !this.find(id)?.cpu) {
       const other = this.players.find(p => p.id !== id)?.id ?? null;
       return { out: { id, reason: 'disconnect' }, round: this.finishRound(other, 'disconnect', id, true) };
     }
@@ -242,7 +310,10 @@ export class Lobby {
   backToLobby(): void {
     this.phase = 'lobby';
     this.match = null;
-    for (const p of this.players) p.ready = false;
+    for (const p of this.players) {
+      p.ready = p.cpu !== null; // CPUs are always ready
+      p.runBy = null;
+    }
   }
 
   /** Players knocked out of the current round. */
@@ -264,7 +335,7 @@ export class Lobby {
     return {
       seed,
       startInMs: START_COUNTDOWN_MS,
-      players: this.players.map(({ id, name, level, speed }) => ({ id, name, level, speed })),
+      players: this.players.map(({ id, name, level, speed, cpu, runBy }) => ({ id, name, level, speed, cpu, runBy })),
       settings: this.settings,
       round: this.match!.round,
       wins: { ...this.match!.wins },

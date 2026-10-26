@@ -285,6 +285,107 @@ describe('match (3–4 players)', () => {
   });
 });
 
+describe('CPU players', () => {
+  /** Alice (host) and Bob, plus two CPUs. */
+  function withCpus(): Lobby {
+    const l = ready(2);
+    expect(l.addCpu('alice-1', 'cpu-aaaa').ok).toBe(true);
+    expect(l.addCpu('alice-1', 'cpu-bbbb').ok).toBe(true);
+    return l;
+  }
+
+  it('only the host adds them; they take seats, get germ names and are always ready', () => {
+    const l = withCpus();
+    expect(l.addCpu('bob-123', 'cpu-cccc').ok).toBe(false);
+    const cpus = l.state.players.filter(p => p.cpu);
+    expect(cpus.map(p => p.name)).toEqual(['Spike', 'Buzz']);
+    expect(cpus.every(p => p.ready && p.connected)).toBe(true);
+    expect(l.join('carol-1', 'Carol').ok).toBe(false); // 4 seats taken
+    expect(l.canStart).toBe(true);
+  });
+
+  it('the host can change and remove them in the lobby', () => {
+    const l = withCpus();
+    expect(l.setCpu('alice-1', 'cpu-aaaa', { level: 12, skill: 'hard' }).ok).toBe(true);
+    expect(l.setCpu('bob-123', 'cpu-aaaa', { level: 1 }).ok).toBe(false);
+    expect(l.setCpu('alice-1', 'bob-123', { level: 1 }).ok).toBe(false); // not a CPU
+    const spike = l.state.players.find(p => p.id === 'cpu-aaaa')!;
+    expect([spike.level, spike.speed, spike.cpu]).toEqual([12, 'med', 'hard']);
+    expect(l.removeCpu('alice-1', 'cpu-bbbb').ok).toBe(true);
+    expect(l.state.players).toHaveLength(3);
+  });
+
+  it('spreads the CPUs over the people: one each with two people and two CPUs', () => {
+    const l = withCpus();
+    const info = l.start('alice-1', 1);
+    if (!info.ok) throw new Error('start failed');
+    const runBy = Object.fromEntries(info.value.players.map(p => [p.id, p.runBy]));
+    expect(runBy).toEqual({ 'alice-1': null, 'bob-123': null, 'cpu-aaaa': 'alice-1', 'cpu-bbbb': 'bob-123' });
+    expect(l.runsCpu('bob-123', 'cpu-bbbb')).toBe(true);
+    expect(l.runsCpu('alice-1', 'cpu-bbbb')).toBe(false);
+    expect(l.cpusRunBy('alice-1')).toEqual(['cpu-aaaa']);
+  });
+
+  it('a lone CPU moves to the next person each round', () => {
+    const l = ready(3);
+    l.addCpu('alice-1', 'cpu-aaaa');
+    const runners: (string | null)[] = [];
+    const first = l.start('alice-1', 1);
+    if (!first.ok) throw new Error('start failed');
+    runners.push(first.value.players.find(p => p.cpu)!.runBy);
+    for (let round = 2; round <= 4; round++) {
+      l.result('cpu-aaaa', 'cleared'); // end the round quickly
+      if (!l.inMatch) break;
+      runners.push(l.nextRound(round)!.players.find(p => p.cpu)!.runBy);
+    }
+    expect(runners).toEqual(['alice-1', 'bob-123', 'carol-1']); // the CPU wins the match in round 3
+  });
+
+  it("a CPU is targeted, knocked out and can win like anyone", () => {
+    const l = withCpus();
+    l.start('alice-1', 1);
+    expect(l.garbageTargets('alice-1', [Color.Yellow])).toEqual(['cpu-aaaa']);
+    l.result('alice-1', 'toppedOut');
+    l.result('bob-123', 'toppedOut');
+    const r = l.result('cpu-aaaa', 'toppedOut')!;
+    expect(r.round!.winner).toBe('cpu-bbbb');
+  });
+
+  it("when someone leaves, their CPU goes to someone else from the next round", () => {
+    const l = withCpus();
+    l.start('alice-1', 1);
+    l.disconnect('bob-123');
+    l.abandon('cpu-bbbb'); // the server knocks out the CPUs they were playing first
+    l.abandon('bob-123');
+    l.remove('bob-123');
+    l.result('cpu-aaaa', 'toppedOut'); // Alice is the last one standing
+    const next = l.nextRound(2)!;
+    expect(next.players.find(p => p.id === 'cpu-bbbb')!.runBy).toBe('alice-1');
+  });
+
+  it('a room with only CPUs left is empty; the host passes to a person', () => {
+    const l = withCpus();
+    l.remove('alice-1');
+    expect(l.state.hostId).toBe('bob-123');
+    l.remove('bob-123');
+    expect(l.state.players).toEqual([]);
+  });
+
+  it('after a match the people need to ready up again, the CPUs stay ready', () => {
+    const l = withCpus();
+    l.start('alice-1', 1);
+    l.backToLobby();
+    expect(l.state.players.map(p => p.ready)).toEqual([false, false, true, true]);
+  });
+
+  it('parses CPU messages', () => {
+    expect(parseClientMessage('{"t":"cpu","id":"cpu-aaaa","skill":"hard","level":3}')).toEqual({ t: 'cpu', id: 'cpu-aaaa', skill: 'hard', level: 3 });
+    expect(parseClientMessage('{"t":"cpu","id":"cpu-aaaa","skill":"godlike"}')).toBeNull();
+    expect(parseClientMessage('{"t":"result","outcome":"toppedOut","as":"cpu-aaaa"}')).toEqual({ t: 'result', outcome: 'toppedOut', as: 'cpu-aaaa' });
+    expect(parseClientMessage('{"t":"result","outcome":"toppedOut","as":"!"}')).toBeNull();
+  });
+});
+
 describe('protocol', () => {
   it('accepts valid messages and rejects junk', () => {
     expect(parseClientMessage('{"t":"join","playerId":"abc123","name":"  Kris  "}')).toEqual({ t: 'join', playerId: 'abc123', name: 'Kris' });
