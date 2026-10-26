@@ -90,6 +90,14 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - **Hosting:** Cloudflare Workers + Durable Objects (via `partyserver`), frontend and relay in one `wrangler deploy`. Location hint: eastern North America.
 - **New seed every round** of best-of-3.
 
+## Chat and emotes (online)
+- A tab docked at the right edge in online rooms (lobby and matches); collapsible, remembered per browser, with an unread count while collapsed. The page keeps room for it (`--chat-room`), except in narrow windows where it covers the game.
+- Always readable, but typing and emotes only work outside of play: lobby, pause, result screens. While anyone's playing the text box and emotes are disabled.
+- `T` starts typing, Enter sends, Esc stops typing. While typing, game keys and shortcuts (P, M, Z, X, Space…) go to the text box (`isTyping` in src/ui/chat.ts).
+- 8 emotes (`EMOTES` in src/net/protocol.ts), sent by index; keys 1–8 or the buttons. They pop up big over the sender's bottle (or the lobby).
+- The server keeps the last 30 lines (sent on join/rejoin) and limits each player to a burst of 5 messages, then 1/s (server/chat.ts). Text is shown with textContent only.
+- After a round ends the boards stay visible for ROUND_END_LINGER_MS (2 s) before the result covers them; the online break between rounds went from 4 s to 6 s to keep the same time on the result screen.
+
 ## Later (not scheduled)
 - **Flash mode** (from Dr. Mario 64): germs mixed with 3 flashing ones, one per color; first to clear all 3 wins. Good for short online rounds — could be a room setting.
 - **3–4 players with color targeting** (from Dr. Mario 64): the color of your first clear in a combo picks the target. Blue → next player right, yellow → 2 right, red → 3 right, wrapping; two colors at once hit two players; retired players skipped.

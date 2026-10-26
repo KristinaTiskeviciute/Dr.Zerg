@@ -6,6 +6,7 @@ import { RECONNECT_GRACE_S } from '../src/config';
 import {
   normalizeRoomCode, parseClientMessage, RESUME_COUNTDOWN_MS, type RoundResult, type ServerMessage,
 } from '../src/net/protocol';
+import { RoomChat } from './chat';
 import { Lobby, type Report, type Result } from './lobby';
 
 interface ConnState {
@@ -16,6 +17,7 @@ const randomSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 
 export class Room extends Server<Env> {
   private lobby!: Lobby;
+  private chat = new RoomChat();
   /** Seats of disconnected players are freed (or the match forfeited) after the grace period. */
   private removals = new Map<string, ReturnType<typeof setTimeout>>();
   private nextRoundTimer: ReturnType<typeof setTimeout> | undefined;
@@ -34,8 +36,18 @@ export class Room extends Server<Env> {
     const id = conn.state?.playerId;
     if (!id) return this.send(conn, { t: 'error', code: 'notAllowed', message: 'Join the room first.' });
 
-    // In-match messages: relay to the other player, or decide the round.
+    // In-match messages: relay to the other player, or decide the round. Chat goes to everyone.
     switch (msg.t) {
+      case 'chat':
+        if (this.chat.allow(id, Date.now())) {
+          const line = { from: id, name: this.lobby.nameOf(id), text: msg.text };
+          this.chat.add(line);
+          this.broadcastJson({ t: 'chat', ...line });
+        }
+        return;
+      case 'emote':
+        if (this.chat.allow(id, Date.now())) this.broadcastJson({ t: 'emote', from: id, name: this.lobby.nameOf(id), e: msg.e });
+        return;
       case 'board':
         if (this.lobby.inMatch) this.broadcastJson({ t: 'board', from: id, snap: msg.snap }, [conn.id]);
         return;
@@ -107,6 +119,7 @@ export class Room extends Server<Env> {
       const r = this.lobby.abandon(id);
       if (r) this.announce(r);
       this.lobby.remove(id);
+      if (this.lobby.state.players.length === 0) this.chat.clear(); // a fresh start for the next group
       this.broadcastLobby();
     }, RECONNECT_GRACE_S * 1000));
   }
@@ -125,6 +138,7 @@ export class Room extends Server<Env> {
     }
     conn.setState({ playerId });
     this.cancelRemoval(playerId);
+    this.send(conn, { t: 'chatLog', lines: this.chat.history });
     if (wasAway) {
       this.broadcastJson({ t: 'back', id: playerId, resumeInMs: RESUME_COUNTDOWN_MS });
       // If they were gone when the next round was due, start it now.

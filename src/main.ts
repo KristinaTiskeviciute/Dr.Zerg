@@ -1,7 +1,7 @@
 import { audio } from './audio/audio';
 import {
   BOARD_SNAPSHOT_HZ, CPU_SKILLS, ENDGAME_GERMS, ENDGAME_MUSIC_BOOST, MAX_FRAME_MS, MAX_LEVEL, MUSIC_MAX_RATE,
-  MUSIC_SPEEDUP_PER_STEP, OPPONENT_BOARD_SCALE, SIM_STEP_MS,
+  MUSIC_SPEEDUP_PER_STEP, OPPONENT_BOARD_SCALE, ROUND_END_LINGER_MS, SIM_STEP_MS,
 } from './config';
 import { CpuController } from './core/ai';
 import { Game, GameEvent } from './core/game';
@@ -16,12 +16,13 @@ import { boardPixelSize, drawBoard, drawGerm } from './render/draw';
 import { BoardEffects } from './render/effects';
 import { gameView } from './render/view';
 import {
-  BoardSnapshot, makeRoomCode, normalizeRoomCode, RoundResult, START_COUNTDOWN_MS, StartInfo,
+  BoardSnapshot, EMOTES, makeRoomCode, normalizeRoomCode, RoundResult, START_COUNTDOWN_MS, StartInfo,
 } from './net/protocol';
 import { encodeSnapshot, snapshotView } from './net/snapshot';
+import { ChatBox, isTyping, popEmote } from './ui/chat';
 import { $, loadSettings, saveSettings, Settings, SKILL_LABEL, SPEED_LABEL } from './ui/dom';
 import { PlayersHud } from './ui/hud';
-import { MatchMessage, OnlineRoom } from './ui/lobby';
+import { ChatMessage, MatchMessage, OnlineRoom } from './ui/lobby';
 import { OpponentBoards } from './ui/opponents';
 
 const canvas = $<HTMLCanvasElement>('#board');
@@ -147,11 +148,62 @@ function staleOpponent(s: OnlineSession, now: number): OnlineOpponent | null {
 const room = new OnlineRoom(settings, {
   onStart: startOnline,
   onMatchMessage: onMatchMessage,
+  onChat: onChat,
   inMatch: () => session?.kind === 'online',
   onLeave: error => {
     showMenu();
     $('#menu-error').textContent = error ?? '';
   },
+});
+
+// --- Chat and emotes: docked at the side in online rooms; typing and emotes only outside of play ---
+
+const chat = new ChatBox(room.me, msg => room.send(msg), () => { if (session) sizeCanvases(); });
+const lobbyScreen = $('#lobby');
+const overlayEl = $('#overlay');
+
+function onChat(msg: ChatMessage): void {
+  if (msg.t === 'chatLog') return chat.setHistory(msg.lines);
+  if (msg.t === 'chat') {
+    chat.add(msg);
+    if (msg.from !== room.me) audio.play('move');
+    return;
+  }
+  const target = emoteTarget(msg.from);
+  if (target) popEmote(target, msg.e, msg.from === room.me ? 'You' : msg.name);
+}
+
+/** Where a player's emote pops up: over the lobby, or over their bottle. */
+function emoteTarget(id: string): HTMLElement | null {
+  if (!lobbyScreen.classList.contains('hidden')) return $('.lobby-panel');
+  if (session?.kind !== 'online') return null;
+  if (id === room.me) return $('.stage');
+  const k = session.opps.findIndex(o => o.id === id);
+  return k >= 0 ? opponents.element(k) ?? null : null;
+}
+
+/**
+ * Every frame: the chat shows in the lobby and during online matches. You can type and send
+ * emotes in the lobby, while paused and on the result screens, but not while anyone's playing.
+ */
+function updateChat(): void {
+  const inLobby = !lobbyScreen.classList.contains('hidden');
+  const online = session?.kind === 'online';
+  chat.show(inLobby || online);
+  chat.setEnabled(inLobby || (online && (overlayKey === 'result' || overlayKey === 'paused')
+    && !overlayEl.classList.contains('hidden')));
+}
+
+// T starts typing; 1–8 send an emote.
+window.addEventListener('keydown', e => {
+  if (!chat.enabled || isTyping(e) || e.repeat) return;
+  if (e.code === 'KeyT') {
+    chat.focus();
+    e.preventDefault();
+    return;
+  }
+  const n = Number(/^Digit(\d)$/.exec(e.code)?.[1]);
+  if (n >= 1 && n <= EMOTES.length) chat.emote(n - 1);
 });
 
 // --- Audio: unlocked by the first key press or click (browser rule) ---
@@ -170,7 +222,7 @@ function renderAudioToggles(): void {
 muteButton.addEventListener('click', () => { audio.toggleMute(); muteButton.blur(); });
 musicButton.addEventListener('click', () => { audio.toggleMusic(); musicButton.blur(); });
 window.addEventListener('keydown', e => {
-  if (e.code === 'KeyM' && !e.repeat) audio.toggleMute();
+  if (e.code === 'KeyM' && !e.repeat && !isTyping(e)) audio.toggleMute();
 });
 audio.onChange(renderAudioToggles);
 renderAudioToggles();
@@ -241,6 +293,7 @@ function showMenu(): void {
   session = null;
   keyboard.enabled = false;
   audio.stopMusic();
+  hideOverlay();
   $('#play').classList.add('hidden');
   $('#lobby').classList.add('hidden');
   $('#menu').classList.remove('hidden');
@@ -390,6 +443,8 @@ function onMatchMessage(msg: MatchMessage): void {
 
 function onOnlineRound(s: OnlineSession, r: RoundResult): void {
   s.result = r;
+  hideOverlay(); // leave the boards visible for a moment before the result
+  overlayKey = 'result';
   audio.stopMusic();
   if (r.winner) {
     audio.jingle(r.winner === room.me ? 'win' : 'lose');
@@ -409,9 +464,8 @@ function onOnlineRound(s: OnlineSession, r: RoundResult): void {
     : [room.me, ...s.opps.map(o => o.id)].map(id => `${who(id)} ${r.wins[id] ?? 0}`).join(' · ');
   const iWon = r.winner === room.me;
   const winnerName = r.winner ? who(r.winner) : '';
-  overlayKey = 'result';
   if (r.matchOver) {
-    showOverlay(iWon ? 'You win the match!' : r.winner ? `${winnerName} wins the match` : 'Match over', `${why}. ${score}`, [
+    showOverlayLater(ROUND_END_LINGER_MS, iWon ? 'You win the match!' : r.winner ? `${winnerName} wins the match` : 'Match over', `${why}. ${score}`, [
       ['Play again', () => playAgainOnline(s)],
       ['Back to lobby', leaveOnlineMatch],
       ['Leave room', () => room.leave()],
@@ -419,7 +473,7 @@ function onOnlineRound(s: OnlineSession, r: RoundResult): void {
   } else {
     const round = s.info.round;
     const title = !r.winner ? 'Draw!' : iWon ? `You take round ${round}` : `${winnerName} takes round ${round}`;
-    showOverlay(title, `${why}. ${score}. Next round coming up…`, []);
+    showOverlayLater(ROUND_END_LINGER_MS, title, `${why}. ${score}. Next round coming up…`, []);
   }
 }
 
@@ -546,7 +600,7 @@ function sizeCanvases(): void {
   const n = opponents.count;
   const oppScale = n <= 1 ? OPPONENT_BOARD_SCALE : n === 2 ? 0.6 : 0.5;
   const narrow = window.innerWidth <= 520;
-  const availW = window.innerWidth - (narrow ? 32 : 260) - n * 32;
+  const availW = window.innerWidth - (narrow ? 32 : 260) - n * 32 - chat.reservedWidth;
   // Leave room for the page padding, and in versus for the opponents' names under their bottles.
   const availH = window.innerHeight - (narrow ? 120 : 56) - (n ? 32 : 0);
   // The canvases stay at sprite resolution; CSS scales them up with crisp (pixelated) edges.
@@ -632,10 +686,10 @@ function onSoloOver(game: Game): void {
     const buttons: [string, () => void][] = [];
     if (lvl < MAX_LEVEL) buttons.push([`Level ${lvl + 1}`, () => startSolo(lvl + 1)]);
     buttons.push(['Play again', () => startSolo(lvl)], ['Menu', showMenu]);
-    showOverlay('Bottle clean!', `Level ${lvl} cleared`, buttons);
+    showOverlayLater(ROUND_END_LINGER_MS, 'Bottle clean!', `Level ${lvl} cleared`, buttons);
   } else {
     audio.jingle('lose');
-    showOverlay('Topped out', `${game.germsLeft} germs left`, [['Retry', () => startSolo(lvl)], ['Menu', showMenu]]);
+    showOverlayLater(ROUND_END_LINGER_MS, 'Topped out', `${game.germsLeft} germs left`, [['Retry', () => startSolo(lvl)], ['Menu', showMenu]]);
   }
 }
 
@@ -662,13 +716,13 @@ function onRoundOver(match: Match): void {
   if (match.state === 'matchOver') {
     const mw = match.matchWinner!;
     const title = mw === 0 ? 'You win the match!' : `${who(mw)} wins the match`;
-    showOverlay(title, `${why}. ${score}`, [['Play again', startCpuMatch], ['Menu', showMenu]]);
+    showOverlayLater(ROUND_END_LINGER_MS, title, `${why}. ${score}`, [['Play again', startCpuMatch], ['Menu', showMenu]]);
   } else {
     const title =
       w === null ? 'Draw!' :
       w === 0 ? `You take round ${match.round}` :
       `${n === 2 ? 'CPU' : names[w]} takes round ${match.round}`;
-    showOverlay(title, w === null ? score : `${why}. ${score}`, [['Next round', nextRound], ['Menu', showMenu]]);
+    showOverlayLater(ROUND_END_LINGER_MS, title, w === null ? score : `${why}. ${score}`, [['Next round', nextRound], ['Menu', showMenu]]);
   }
 }
 
@@ -688,7 +742,7 @@ function togglePause(): void {
 }
 
 window.addEventListener('keydown', e => {
-  if (!session) return;
+  if (!session || isTyping(e)) return;
   if ((e.code === 'KeyP' || e.code === 'Escape') && !e.repeat) {
     togglePause();
     e.preventDefault();
@@ -705,7 +759,16 @@ window.addEventListener('keydown', e => {
 
 // --- Overlay ---
 
+let overlayTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Show an overlay after a delay (e.g. so the boards stay visible for a moment after a round). */
+function showOverlayLater(ms: number, title: string, sub: string, buttons: [string, () => void][]): void {
+  clearTimeout(overlayTimer);
+  overlayTimer = setTimeout(() => showOverlay(title, sub, buttons), ms);
+}
+
 function showOverlay(title: string, sub: string, buttons: [string, () => void][]): void {
+  clearTimeout(overlayTimer);
   $('#overlay-title').textContent = title;
   $('#overlay-sub').textContent = sub;
   const box = $('#overlay-buttons');
@@ -724,6 +787,7 @@ function showOverlay(title: string, sub: string, buttons: [string, () => void][]
 }
 
 function hideOverlay(): void {
+  clearTimeout(overlayTimer);
   $('#overlay').classList.add('hidden');
 }
 
@@ -827,6 +891,7 @@ function frame(now: number): void {
 
   if (session?.kind === 'online') updateOnline(session, now);
   if (session?.kind === 'cpu') updateCpuCountdown(session, now);
+  updateChat();
 
   if (running()) {
     acc += dt;

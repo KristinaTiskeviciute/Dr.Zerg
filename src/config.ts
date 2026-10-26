@@ -83,6 +83,8 @@ export const CPU_SKILLS: Record<CpuSkillName, CpuSkill> = {
 // --- Online (used from milestone 4) ---
 export const BOARD_SNAPSHOT_HZ = 10;
 export const RECONNECT_GRACE_S = 15;
+/** After a round ends, the boards stay visible this long before the result covers them. */
+export const ROUND_END_LINGER_MS = 2000;
 
 // --- Simulation ---
 export const SIM_STEP_MS = 1000 / 60;

@@ -34,6 +34,11 @@ export class OpponentBoards {
     this.container.classList.toggle('many', labels.length > 1);
   }
 
+  /** Opponent i's bottle with its name (e.g. to pop an emote over it). */
+  element(i: number): HTMLElement | undefined {
+    return this.slots[i]?.wrap;
+  }
+
   /** Effects (flash, shake, incoming blink) for opponent i. */
   fx(i: number): BoardEffects {
     return this.slots[i].fx;

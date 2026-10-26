@@ -278,6 +278,68 @@ canvas { display: block; image-rendering: pixelated; }
 .overlay p { margin: 0 0 12px; color: var(--muted); font-size: 10px; line-height: 1.8; }
 .overlay .buttons { display: flex; flex-direction: column; gap: 14px; width: 180px; }
 
+/* --- Chat: a tab docked at the right edge (online rooms); the page keeps room for it --- */
+.lobby-panel { position: relative; }
+#app { padding-right: var(--chat-room, 0px); }
+.chat-dock {
+  position: fixed; top: 64px; right: 0; bottom: 16px; z-index: 20;
+  display: flex; align-items: flex-start; pointer-events: none;
+}
+.chat-dock > * { pointer-events: auto; }
+.chat-tab {
+  writing-mode: vertical-rl; padding: 14px 8px; font-size: 10px; margin-top: 8px;
+  display: flex; align-items: center; gap: 10px;
+}
+.chat-tab .badge {
+  writing-mode: horizontal-tb; background: var(--red); color: var(--text);
+  font-size: 8px; padding: 4px 5px 3px; box-shadow: 0 0 0 2px var(--edge);
+}
+.chat-dock .chat {
+  width: 290px; height: 100%; padding: 14px; margin-right: 8px;
+  background: var(--panel);
+  box-shadow: 0 0 0 4px var(--edge-light), 0 0 0 8px var(--edge);
+}
+.chat-dock:not(.open) .chat { display: none; }
+.chat { display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.chat-log {
+  list-style: none; margin: 0; padding: 8px; flex: 1; min-height: 80px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 8px;
+  background: #0f1129; box-shadow: inset 2px 2px 0 rgba(0, 0, 0, 0.4), 0 0 0 3px var(--edge-light);
+  font-size: 9px; line-height: 1.7; overflow-wrap: anywhere;
+}
+.chat-log:empty::before { content: 'No messages yet.'; color: var(--muted); opacity: 0.7; }
+.chat-log b { font-weight: normal; color: #8fb8ff; }
+.chat-log .mine b { color: var(--yellow); }
+.chat-form input[type='text'] { font-size: 10px; padding: 8px; }
+.chat-form input:disabled { opacity: 0.5; cursor: not-allowed; }
+.emotes { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+.emotes button {
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  font-size: 16px; padding: 4px 0; line-height: 1.2;
+}
+.emotes button:disabled { filter: grayscale(1); }
+.overlay { overflow-y: auto; }
+
+/* An emote pops up big over a bottle (or the lobby), then floats away. */
+.emote-pop {
+  position: absolute; left: 50%; top: 42%; z-index: 3;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  pointer-events: none; animation: emote-pop 2.2s ease-out forwards;
+}
+.emote-pop .emoji {
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  font-size: 96px; line-height: 1; filter: drop-shadow(4px 4px 0 var(--edge));
+}
+.opponents.many .emote-pop .emoji { font-size: 64px; }
+.emote-pop .who { font-size: 10px; color: var(--text); text-shadow: 2px 2px 0 var(--edge); white-space: nowrap; }
+@keyframes emote-pop {
+  0% { transform: translate(-50%, -50%) scale(0.2); opacity: 0; }
+  12% { transform: translate(-50%, -50%) scale(1.15); opacity: 1; }
+  22% { transform: translate(-50%, -50%) scale(1); }
+  75% { transform: translate(-50%, -60%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -85%) scale(0.9); opacity: 0; }
+}
+
 @media (max-width: 620px) {
   #menu.cpu .panel-cols { grid-template-columns: 1fr; }
 }

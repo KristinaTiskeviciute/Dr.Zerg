@@ -10,8 +10,16 @@ export const MAX_NAME_LENGTH = 16;
 export const START_COUNTDOWN_MS = 3000;
 /** Countdown when play resumes after a pause or a reconnect. */
 export const RESUME_COUNTDOWN_MS = 3000;
-/** Break between rounds (showing the result) before the next round's countdown starts. */
-export const ROUND_BREAK_MS = 4000;
+/**
+ * Break between rounds before the next round's countdown starts: the boards stay up for a
+ * moment (ROUND_END_LINGER_MS), then the result shows (time to chat).
+ */
+export const ROUND_BREAK_MS = 6000;
+export const MAX_CHAT_LENGTH = 120;
+/** Chat lines a room remembers (sent to anyone who joins or reconnects). */
+export const CHAT_HISTORY = 30;
+/** Emotes everyone can pop up big on the screen; sent by index. */
+export const EMOTES = ['😭', '😂', '😱', '😡', '😎', '👏', '🔥', '💀'] as const;
 const SPEEDS: readonly Speed[] = ['low', 'med', 'high'];
 const BOARD_CELLS = 8 * 16;
 
@@ -58,6 +66,13 @@ export interface LobbyState {
   phase: 'lobby' | 'playing';
 }
 
+export interface ChatLine {
+  from: string;
+  /** The sender's name when they said it. */
+  name: string;
+  text: string;
+}
+
 export type ClientMessage =
   | { t: 'join'; playerId: string; name: string }
   | { t: 'setup'; level: number; speed: Speed }
@@ -68,6 +83,9 @@ export type ClientMessage =
   | { t: 'backToLobby' }
   /** After a match: ready for another; it starts as soon as everyone has said so. */
   | { t: 'playAgain' }
+  /** Chat and emotes (only offered outside of play: lobby, pause, between rounds). */
+  | { t: 'chat'; text: string }
+  | { t: 'emote'; e: number }
   // During a match:
   | { t: 'board'; snap: BoardSnapshot }
   /** firstColors = the colors of the chain's first clear; the server uses them to pick targets. */
@@ -104,6 +122,10 @@ export type ServerMessage =
   | { t: 'lobby'; lobby: LobbyState }
   | ({ t: 'start' } & StartInfo)
   | { t: 'error'; code: ErrorCode; message: string }
+  | ({ t: 'chat' } & ChatLine)
+  /** The room's recent chat, sent when you join (or rejoin). */
+  | { t: 'chatLog'; lines: ChatLine[] }
+  | { t: 'emote'; from: string; name: string; e: number }
   // During a match:
   | { t: 'board'; from: string; snap: BoardSnapshot }
   | { t: 'garbage'; from: string; colors: number[] }
@@ -125,6 +147,14 @@ const isSpeed = (v: unknown): v is Speed => typeof v === 'string' && (SPEEDS as 
 export function cleanName(raw: unknown): string {
   const s = typeof raw === 'string' ? raw.replace(/[\u0000-\u001f]/g, '').trim() : '';
   return s.slice(0, MAX_NAME_LENGTH) || 'Player';
+}
+
+/** Chat text without control characters, trimmed and cut to MAX_CHAT_LENGTH (null if nothing's left). */
+export function cleanChat(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const s = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+  // Cut by characters, not UTF-16 units, so an emoji isn't split in half.
+  return Array.from(s).slice(0, MAX_CHAT_LENGTH).join('').trim() || null;
 }
 
 export function parseClientMessage(raw: string): ClientMessage | null {
@@ -156,6 +186,12 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return { t: 'backToLobby' };
     case 'playAgain':
       return { t: 'playAgain' };
+    case 'chat': {
+      const text = cleanChat(m.text);
+      return text ? { t: 'chat', text } : null;
+    }
+    case 'emote':
+      return isInt(m.e, 0, EMOTES.length - 1) ? { t: 'emote', e: m.e } : null;
     case 'board':
       return isSnapshot(m.snap) ? { t: 'board', snap: m.snap } : null;
     case 'garbage': {

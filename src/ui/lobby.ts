@@ -7,11 +7,14 @@ const SLOW_CONNECT_MS = 5000;
 
 /** Messages that matter during a match (boards, garbage, results, pause, disconnects). */
 export type MatchMessage = Extract<ServerMessage, { t: 'board' | 'garbage' | 'out' | 'round' | 'pause' | 'away' | 'back' }>;
+/** Chat lines, the chat history (on joining) and emotes. */
+export type ChatMessage = Extract<ServerMessage, { t: 'chat' | 'chatLog' | 'emote' }>;
 
 export interface RoomCallbacks {
   /** A round starts (first round from the lobby, later rounds automatically). */
   onStart(info: StartInfo): void;
   onMatchMessage(msg: MatchMessage): void;
+  onChat(msg: ChatMessage): void;
   /** True while you're actually playing a round on this tab. */
   inMatch(): boolean;
   /** You left the room (or were turned away): back to the menu. */
@@ -131,6 +134,11 @@ export class OnlineRoom {
       case 'back':
       case 'out':
         this.cb.onMatchMessage(msg);
+        break;
+      case 'chat':
+      case 'chatLog':
+      case 'emote':
+        this.cb.onChat(msg);
         break;
       case 'error':
         console.warn(`[room ${this.code}] server says: ${msg.code}: ${msg.message}`);

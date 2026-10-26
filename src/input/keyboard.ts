@@ -1,5 +1,6 @@
 import { DAS_DELAY_MS, DAS_REPEAT_MS } from '../config';
 import { StepInput } from '../core/game';
+import { isTyping } from '../ui/chat';
 
 export type Action = 'left' | 'right' | 'softDrop' | 'rotateCW' | 'rotateCCW';
 
@@ -134,7 +135,7 @@ export class KeyboardInput {
 
   private onKeyDown(e: KeyboardEvent): void {
     const action = this.codeToAction.get(e.code);
-    if (!action || !this.enabled) return;
+    if (!action || !this.enabled || isTyping(e)) return; // typing in the chat box
     e.preventDefault();
     if (!e.repeat) this.press(action);
   }
@@ -142,6 +143,7 @@ export class KeyboardInput {
   private onKeyUp(e: KeyboardEvent): void {
     const action = this.codeToAction.get(e.code);
     if (!action || !this.enabled) return;
+    if (isTyping(e)) return this.release(action);
     e.preventDefault(); // also stops Space from "clicking" a focused button on release
     this.release(action);
   }
