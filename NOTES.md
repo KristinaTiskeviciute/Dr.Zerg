@@ -71,6 +71,9 @@ Changes to the original spec, agreed in planning (2026-10-24).
 
 ## Game controller
 - `src/input/gamepad.ts`: any controller the browser maps to the standard layout (PS5 DualSense, Xbox…). Circle rotate ↻, Cross rotate ↺, D-pad/left stick move, down soft drop, D-pad up rotate ↻, Options pause. Cross/Options press the focused button on menus between rounds. Feeds the same input as the keyboard, so auto-repeat and the "held over from last capsule" rules match.
+- Menus with a controller (`src/ui/padnav.ts`), whenever a menu is up (title, lobby, paused, between rounds; never during play): D-pad/stick move to the nearest control in that direction (held: repeats), left/right on a slider changes it by 5%, ✕ presses, ◯ goes back (closes the volume panel / deletes a letter). Create mutes voice. The selection stays outlined while the controller is in use (`body.pad-nav`).
+- On-screen keyboard (`src/ui/osk.ts`): ✕ on a text box (your name, room code) opens it. Not for chat (voice covers that).
+- Keyboard: ↑/↓ and Enter/Space work on the overlay menus too.
 - Rumble (`src/input/rumble.ts`): lock tick, clears (stronger per chain step), garbage warning, garbage landing thump, round win/loss. Toggle button (🎮 Rumble) appears when a controller is connected. Uses the browser's `dual-rumble` effect where supported (Chrome/Edge); Firefox has no rumble.
 
 ## Audio

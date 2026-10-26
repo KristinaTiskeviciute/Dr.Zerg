@@ -6,6 +6,10 @@ const STORAGE_KEY = 'drzerg.audio';
 const SFX_VOLUME = 0.8;
 const MUSIC_VOLUME = 0.35;
 
+/** Volume sliders, 0–1 (1 = the normal mix). Voice is the other players in voice chat. */
+export type VolumeKind = 'music' | 'sfx' | 'voice';
+const clamp01 = (v: unknown, fallback: number) => (typeof v === 'number' && v >= 0 && v <= 1 ? v : fallback);
+
 /**
  * Plays sound effects and the music loop. Browsers only allow audio after a user
  * gesture, so nothing is created until unlock() is called from a key press or click.
@@ -13,6 +17,7 @@ const MUSIC_VOLUME = 0.35;
 class AudioManager {
   muted = false;
   musicOn = true;
+  readonly volume: Record<VolumeKind, number> = { music: 1, sfx: 1, voice: 1 };
 
   private ctx: AudioContext | null = null;
   private master!: GainNode;
@@ -33,6 +38,7 @@ class AudioManager {
       if (saved) {
         this.muted = !!saved.muted;
         this.musicOn = saved.musicOn !== false;
+        for (const k of Object.keys(this.volume) as VolumeKind[]) this.volume[k] = clamp01(saved.volume?.[k], 1);
       }
     } catch { /* storage unavailable */ }
   }
@@ -42,8 +48,8 @@ class AudioManager {
     if (!this.ctx) {
       this.ctx = new AudioContext();
       this.master = this.gain(this.muted ? 0 : 1, this.ctx.destination);
-      this.sfxGain = this.gain(SFX_VOLUME, this.master);
-      this.musicGain = this.gain(MUSIC_VOLUME, this.master);
+      this.sfxGain = this.gain(SFX_VOLUME * this.volume.sfx, this.master);
+      this.musicGain = this.gain(MUSIC_VOLUME * this.volume.music, this.master);
       for (const name of Object.keys(SFX) as SfxName[]) {
         const params = [...SFX[name]];
         params[1] = 0; // no built-in randomness; we vary pitch at play time instead
@@ -103,6 +109,13 @@ class AudioManager {
     this.changed();
   }
 
+  setVolume(kind: VolumeKind, value: number): void {
+    this.volume[kind] = clamp01(value, this.volume[kind]);
+    if (this.ctx && kind === 'sfx') this.sfxGain.gain.setTargetAtTime(SFX_VOLUME * this.volume.sfx, this.ctx.currentTime, 0.02);
+    if (kind === 'music') this.applyMusicVolume();
+    this.changed();
+  }
+
   onChange(fn: () => void): void {
     this.listeners.push(fn);
   }
@@ -148,7 +161,7 @@ class AudioManager {
 
   private applyMusicVolume(): void {
     if (!this.ctx) return;
-    const v = this.musicOn && !this.musicPaused ? MUSIC_VOLUME : 0;
+    const v = this.musicOn && !this.musicPaused ? MUSIC_VOLUME * this.volume.music : 0;
     this.musicGain.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
   }
 
@@ -168,7 +181,7 @@ class AudioManager {
 
   private changed(): void {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ muted: this.muted, musicOn: this.musicOn }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ muted: this.muted, musicOn: this.musicOn, volume: this.volume }));
     } catch { /* storage unavailable */ }
     for (const fn of this.listeners) fn();
   }

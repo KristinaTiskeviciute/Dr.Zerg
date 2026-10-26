@@ -192,10 +192,17 @@ kbd {
   right: 14px;
   display: flex;
   gap: 12px;
-  z-index: 10;
+  z-index: 30; /* above the chat tab, so the volume panel can overlap it */
 }
 .audio-toggles button { font-size: 9px; padding: 9px 10px 8px; min-width: 96px; }
 .audio-toggles button.off { opacity: 0.5; text-decoration: line-through; }
+.volume-panel {
+  position: absolute; top: calc(100% + 14px); right: 0; width: 280px; padding: 16px;
+  display: flex; flex-direction: column; gap: 14px;
+  background: var(--panel); box-shadow: 0 0 0 4px var(--edge-light), 0 0 0 8px var(--edge), 6px 6px 0 8px var(--edge);
+}
+.volume-panel label { display: grid; grid-template-columns: 60px 1fr 44px; align-items: center; gap: 10px; font-size: 9px; color: var(--muted); }
+.volume-panel output { color: var(--text); text-align: right; }
 
 .stage { position: relative; }
 canvas { display: block; image-rendering: pixelated; }
@@ -277,6 +284,8 @@ canvas { display: block; image-rendering: pixelated; }
 .overlay h2 { margin: 0; font-size: 20px; font-weight: normal; color: var(--yellow); text-shadow: 3px 3px 0 var(--edge); line-height: 1.5; }
 .overlay p { margin: 0 0 12px; color: var(--muted); font-size: 10px; line-height: 1.8; }
 .overlay .buttons { display: flex; flex-direction: column; gap: 14px; width: 180px; }
+/* The selected menu button is always marked (keyboard and controller pick with ↑/↓). */
+.overlay .buttons button:focus { outline: 3px solid var(--yellow); outline-offset: 4px; }
 
 /* --- Chat: a tab docked at the right edge (online rooms); the page keeps room for it --- */
 .lobby-panel { position: relative; }
@@ -367,3 +376,22 @@ canvas { display: block; image-rendering: pixelated; }
   .hud { flex-direction: row; flex-wrap: wrap; justify-content: center; }
   .hud .controls { display: none; }
 }
+
+/* Controller: the selected control is always marked */
+body.pad-nav :is(button, input):focus { outline: 3px solid var(--yellow); outline-offset: 4px; }
+
+/* On-screen keyboard (controller): name and room code */
+.osk {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 40;
+  width: min(520px, calc(100% - 32px)); padding: 16px;
+  display: flex; flex-direction: column; gap: 12px;
+  background: var(--panel); box-shadow: 0 0 0 4px var(--edge-light), 0 0 0 8px var(--edge), 8px 8px 0 8px var(--edge);
+}
+.osk-preview {
+  font-size: 14px; padding: 10px; min-height: 38px; background: #0f1129; overflow: hidden; white-space: nowrap;
+  box-shadow: inset 2px 2px 0 rgba(0, 0, 0, 0.4), 0 0 0 3px var(--edge-light);
+}
+.osk-keys { display: grid; grid-template-columns: repeat(10, 1fr); gap: 8px; }
+.osk-keys button { padding: 10px 0 8px; font-size: 11px; }
+.osk-keys .wide2 { grid-column: span 2; font-size: 9px; }
+.osk-keys .wide4 { grid-column: span 4; font-size: 9px; }

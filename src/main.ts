@@ -1,4 +1,4 @@
-import { audio } from './audio/audio';
+import { audio, VolumeKind } from './audio/audio';
 import {
   BOARD_SNAPSHOT_HZ, CPU_SKILLS, ENDGAME_GERMS, ENDGAME_MUSIC_BOOST, MAX_FRAME_MS, MAX_LEVEL, MUSIC_MAX_RATE,
   MUSIC_SPEEDUP_PER_STEP, OPPONENT_BOARD_SCALE, ROUND_END_LINGER_MS, SIM_STEP_MS,
@@ -9,7 +9,7 @@ import { Match } from './core/match';
 import { randomSeed } from './core/rng';
 import { garbageTargets } from './core/targeting';
 import { COLORS } from './core/types';
-import { GamepadInput } from './input/gamepad';
+import { GamepadInput, NavDir } from './input/gamepad';
 import { KeyboardInput } from './input/keyboard';
 import { Rumble } from './input/rumble';
 import { boardPixelSize, drawBoard, drawGerm } from './render/draw';
@@ -25,6 +25,8 @@ import { $, loadSettings, saveSettings, Settings, SKILL_LABEL, SPEED_LABEL } fro
 import { PlayersHud } from './ui/hud';
 import { ChatMessage, MatchMessage, OnlineRoom } from './ui/lobby';
 import { OpponentBoards } from './ui/opponents';
+import { ScreenKeyboard } from './ui/osk';
+import { blurUnlessPad, focusables, moveFocus, stepRange, usingPad } from './ui/padnav';
 import { VoiceBar } from './ui/voice';
 
 const canvas = $<HTMLCanvasElement>('#board');
@@ -38,22 +40,15 @@ keyboard.attach();
 
 const pad = new GamepadInput(keyboard, {
   onPause: () => togglePause(),
-  onConfirm: () => {
-    // Between rounds and on menus: press the focused button (overlays focus their main button).
-    if (running()) return false;
-    const el = document.activeElement;
-    if (el instanceof HTMLButtonElement && el.offsetParent !== null && !el.disabled) {
-      el.click();
-      return true;
-    }
-    return false;
-  },
+  onConfirm: button => padConfirm(button),
+  onBack: () => padBack(),
   onMute: () => voice.toggleMute(),
+  onNavigate: dir => padNavigate(dir),
   onChange: () => renderPadUi(),
 });
 const rumble = new Rumble(pad);
 const rumbleButton = $<HTMLButtonElement>('#toggle-rumble');
-rumbleButton.addEventListener('click', () => { rumble.toggle(); renderPadUi(); rumbleButton.blur(); });
+rumbleButton.addEventListener('click', () => { rumble.toggle(); renderPadUi(); blurUnlessPad(rumbleButton); });
 function renderPadUi(): void {
   const connected = pad.connected;
   rumbleButton.classList.toggle('hidden', !connected);
@@ -176,6 +171,8 @@ const voice = new VoiceChat(room.me, msg => room.send(msg), () => {
   chat.setTabIcon(voiceBar.tabIcon);
 });
 const voiceBar = new VoiceBar(chat.voiceSlot, voice, room.me);
+voice.setVolume(audio.volume.voice);
+audio.onChange(() => voice.setVolume(audio.volume.voice));
 window.addEventListener('keydown', e => {
   if (e.code === 'KeyV' && !e.repeat && !isTyping(e) && voice.status === 'on') voice.toggleMute();
 });
@@ -238,13 +235,39 @@ function renderAudioToggles(): void {
   musicButton.textContent = '♪ Music';
   musicButton.classList.toggle('off', !audio.musicOn);
 }
-muteButton.addEventListener('click', () => { audio.toggleMute(); muteButton.blur(); });
-musicButton.addEventListener('click', () => { audio.toggleMusic(); musicButton.blur(); });
+muteButton.addEventListener('click', () => { audio.toggleMute(); blurUnlessPad(muteButton); });
+musicButton.addEventListener('click', () => { audio.toggleMusic(); blurUnlessPad(musicButton); });
 window.addEventListener('keydown', e => {
   if (e.code === 'KeyM' && !e.repeat && !isTyping(e)) audio.toggleMute();
 });
 audio.onChange(renderAudioToggles);
 renderAudioToggles();
+
+// Volume sliders (music, sound effects, voice chat), in a panel under the audio buttons.
+const volumePanel = $('#volume-panel');
+const volumeInputs = [...volumePanel.querySelectorAll<HTMLInputElement>('input[data-volume]')];
+function renderVolumes(): void {
+  for (const input of volumeInputs) {
+    const pct = Math.round(audio.volume[input.dataset.volume as VolumeKind] * 100);
+    if (document.activeElement !== input) input.value = String(pct);
+    (input.nextElementSibling as HTMLOutputElement).value = `${pct}%`;
+  }
+}
+for (const input of volumeInputs) {
+  input.addEventListener('input', () => audio.setVolume(input.dataset.volume as VolumeKind, Number(input.value) / 100));
+  input.addEventListener('change', () => blurUnlessPad(input)); // give the arrow keys back to the game
+}
+const volumeButton = $<HTMLButtonElement>('#toggle-volume');
+volumeButton.addEventListener('click', () => {
+  volumePanel.classList.toggle('hidden');
+  renderVolumes();
+  if (usingPad() && !volumePanel.classList.contains('hidden')) volumeInputs[0].focus(); // straight to the sliders
+  else blurUnlessPad(volumeButton);
+});
+document.addEventListener('pointerdown', e => {
+  if (!(e.target as Element).closest('.audio-toggles')) volumePanel.classList.add('hidden');
+});
+audio.onChange(renderVolumes);
 
 // --- Menu ---
 
@@ -776,7 +799,107 @@ window.addEventListener('keydown', e => {
   }
 });
 
+// --- Getting around menus with a controller (never during play) ---
+
+const osk = new ScreenKeyboard();
+
+/** A menu is up: no session (title / lobby), paused, or an overlay with buttons (between rounds). */
+function menuActive(): boolean {
+  if (!session || paused) return true;
+  if (session.kind === 'online' && session.pausedBy) return true;
+  return !overlayEl.classList.contains('hidden') && document.querySelector('#overlay-buttons button') !== null;
+}
+
+/** Where the selection starts when nothing is selected yet. */
+function defaultControl(list: HTMLElement[]): HTMLElement | undefined {
+  for (const sel of ['.osk button', '#overlay-buttons button', '#ready-btn', '#start', '#create-room']) {
+    const el = list.find(e => e.matches(sel));
+    if (el) return el;
+  }
+  return list[0];
+}
+
+function padNavigate(dir: NavDir): void {
+  if (!menuActive()) return;
+  document.body.classList.add('pad-nav');
+  const list = osk.isOpen ? focusables(osk.panel) : focusables();
+  const cur = document.activeElement as HTMLElement | null;
+  if (!cur || !list.includes(cur)) {
+    defaultControl(list)?.focus();
+    return;
+  }
+  if (cur instanceof HTMLInputElement && cur.type === 'range' && (dir === 'left' || dir === 'right')) {
+    stepRange(cur, dir === 'right' ? 1 : -1);
+    return;
+  }
+  if (moveFocus(list, dir)) audio.play('move');
+  // Left the volume panel: close it.
+  if (!volumePanel.classList.contains('hidden') && !document.activeElement?.closest('.audio-toggles')) {
+    volumePanel.classList.add('hidden');
+  }
+}
+
+function padConfirm(button: 'cross' | 'options'): boolean {
+  if (!menuActive()) return false;
+  document.body.classList.add('pad-nav');
+  if (osk.isOpen && button === 'options') {
+    osk.done();
+    return true;
+  }
+  const el = document.activeElement;
+  if (!(el instanceof HTMLElement) || el.getClientRects().length === 0) return false;
+  if (el instanceof HTMLInputElement && el.type === 'text' && !el.closest('.chat-form')) {
+    osk.open(el);
+    return true;
+  }
+  if (el instanceof HTMLButtonElement && !el.disabled) {
+    el.click();
+    return true;
+  }
+  return false;
+}
+
+function padBack(): void {
+  if (!menuActive()) return;
+  if (osk.isOpen) return osk.backspace();
+  if (!volumePanel.classList.contains('hidden')) {
+    volumePanel.classList.add('hidden');
+    volumeButton.focus();
+  }
+}
+
+// Mouse or keyboard: stop marking the controller's selection.
+for (const type of ['pointerdown', 'keydown']) {
+  window.addEventListener(type, () => document.body.classList.remove('pad-nav'), { capture: true });
+}
+
 // --- Overlay ---
+
+/** Move focus between the overlay's buttons (keyboard ↑/↓, controller D-pad / stick). */
+function navigateOverlay(dir: -1 | 1): boolean {
+  if (running() || overlayEl.classList.contains('hidden')) return false;
+  const buttons = [...document.querySelectorAll<HTMLButtonElement>('#overlay-buttons button')].filter(b => !b.disabled);
+  if (buttons.length === 0) return false;
+  const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  const next = i < 0 ? (dir > 0 ? 0 : buttons.length - 1) : (i + dir + buttons.length) % buttons.length;
+  buttons[next].focus();
+  if (next !== i) audio.play('move');
+  return true;
+}
+
+window.addEventListener('keydown', e => {
+  if (isTyping(e) || overlayEl.classList.contains('hidden') || running()) return;
+  if (e.code === 'ArrowUp' || e.code === 'ArrowDown') {
+    if (navigateOverlay(e.code === 'ArrowUp' ? -1 : 1)) e.preventDefault();
+  } else if ((e.code === 'Enter' || e.code === 'Space') && !e.repeat) {
+    // Space would normally click on release, but the game keeps Space for itself.
+    const el = document.activeElement;
+    if (el instanceof HTMLButtonElement && el.closest('#overlay-buttons')) {
+      e.preventDefault();
+      el.click();
+    }
+  }
+});
 
 let overlayTimer: ReturnType<typeof setTimeout> | undefined;
 

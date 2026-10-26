@@ -1,5 +1,6 @@
 import { LobbyPlayer } from '../net/protocol';
 import { VoiceChat } from '../net/voice';
+import { blurUnlessPad } from './padnav';
 
 /**
  * The voice controls at the top of the chat tab: join / mute / leave, and everyone in voice
@@ -21,7 +22,7 @@ export class VoiceBar {
       const b = document.createElement('button');
       b.type = 'button';
       b.textContent = text;
-      b.addEventListener('click', () => { onClick(); b.blur(); });
+      b.addEventListener('click', () => { onClick(); blurUnlessPad(b); });
       return b;
     };
     this.joinBtn = button('🎤 Join voice', () => void voice.join());

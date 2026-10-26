@@ -44,6 +44,8 @@ export class VoiceChat {
   /** The other players in voice (from the latest lobby state). */
   private others = new Set<string>();
   private retries = new Map<string, ReturnType<typeof setTimeout>>();
+  /** How loud the other players are, 0–1. */
+  private volume = 1;
 
   constructor(
     private readonly me: string,
@@ -98,6 +100,11 @@ export class VoiceChat {
     this.muted = !this.muted;
     for (const t of this.mic.getAudioTracks()) t.enabled = !this.muted;
     this.onChange();
+  }
+
+  setVolume(volume: number): void {
+    this.volume = volume;
+    for (const p of this.peers.values()) p.audio.volume = volume;
   }
 
   /** A lobby update: who's in voice now. */
@@ -196,6 +203,7 @@ export class VoiceChat {
     const pc = new RTCPeerConnection({ iceServers: this.ice });
     const audio = new Audio();
     audio.autoplay = true;
+    audio.volume = this.volume;
     const peer: Peer = { pc, audio, pending: [], meter: null };
     pc.onicecandidate = e => {
       if (!e.candidate) return;

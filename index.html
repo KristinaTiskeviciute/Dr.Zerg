@@ -15,6 +15,12 @@
       <button type="button" id="toggle-rumble" class="hidden" title="Controller rumble on/off"></button>
       <button type="button" id="toggle-music" title="Music on/off"></button>
       <button type="button" id="toggle-mute" title="Mute all sound (M)"></button>
+      <button type="button" id="toggle-volume" title="Volume">🎚 Volume</button>
+      <div id="volume-panel" class="volume-panel hidden">
+        <label>Music <input type="range" min="0" max="100" data-volume="music" /><output></output></label>
+        <label>Sound <input type="range" min="0" max="100" data-volume="sfx" /><output></output></label>
+        <label>Voice <input type="range" min="0" max="100" data-volume="voice" /><output></output></label>
+      </div>
     </div>
     <main id="app">
       <section id="menu" class="screen">
@@ -110,7 +116,8 @@
           <kbd>←</kbd><kbd>→</kbd> move · <kbd>↑</kbd><kbd>X</kbd> rotate ↻ · <kbd>Z</kbd> rotate ↺ · <kbd>↓</kbd> drop · <kbd>P</kbd> pause · <kbd>M</kbd> mute
         </p>
         <p class="controls hidden" id="pad-hint">
-          🎮 Controller: <kbd>◯</kbd> rotate ↻ · <kbd>✕</kbd> rotate ↺ · <kbd>D-pad</kbd> / stick move, <kbd>↓</kbd> drop · <kbd>Options</kbd> pause · <kbd>Create</kbd> mute voice
+          🎮 Controller: <kbd>◯</kbd> rotate ↻ · <kbd>✕</kbd> rotate ↺ · <kbd>D-pad</kbd> / stick move, <kbd>↓</kbd> drop · <kbd>Options</kbd> pause · <kbd>Create</kbd> mute voice<br />
+          Menus: <kbd>D-pad</kbd> move · <kbd>✕</kbd> select · <kbd>◯</kbd> back
         </p>
       </section>
 

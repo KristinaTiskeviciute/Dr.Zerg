@@ -1,4 +1,5 @@
 import { ChatLine, ClientMessage, EMOTES, MAX_CHAT_LENGTH } from '../net/protocol';
+import { blurUnlessPad } from './padnav';
 
 /** How long a big emote stays on screen. */
 const EMOTE_MS = 2200;
@@ -59,7 +60,7 @@ export class ChatBox {
     this.tabIcon = document.createElement('span');
     this.tabIcon.className = 'tab-icon';
     tab.append(this.tabIcon, tabText, this.badge);
-    tab.addEventListener('click', () => { this.setOpen(!this.open); tab.blur(); });
+    tab.addEventListener('click', () => { this.setOpen(!this.open); blurUnlessPad(tab); });
 
     const body = document.createElement('div');
     body.className = 'chat';
@@ -94,7 +95,7 @@ export class ChatBox {
       b.type = 'button';
       b.textContent = emoji;
       b.title = `Key ${i + 1}`;
-      b.addEventListener('click', () => { this.emote(i); b.blur(); });
+      b.addEventListener('click', () => { this.emote(i); blurUnlessPad(b); });
       this.emoteButtons.push(b);
       emotes.append(b);
     });

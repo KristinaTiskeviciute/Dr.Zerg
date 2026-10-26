@@ -6,6 +6,7 @@ import { Action } from './keyboard';
  *   Circle (1) rotate clockwise · Cross (0) rotate counter-clockwise
  *   D-pad / left stick: left/right move, down soft drop, D-pad up rotate clockwise
  *   Options (9) pause · Cross or Options also confirms menus between rounds · Create (8) voice mute
+ *   In menus: D-pad / stick move between buttons (held: repeats), Circle goes back
  */
 const BUTTON_ACTIONS: [button: number, action: Action][] = [
   [1, 'rotateCW'], // Circle
@@ -16,9 +17,15 @@ const BUTTON_ACTIONS: [button: number, action: Action][] = [
   [15, 'right'], // D-pad right
 ];
 const STICK_THRESHOLD = 0.5;
+/** Holding a direction in a menu: first repeat after this long, then every NAV_REPEAT_MS. */
+const NAV_DELAY_MS = 400;
+const NAV_REPEAT_MS = 110;
 const CROSS = 0;
+const CIRCLE = 1;
 const CREATE = 8;
 const OPTIONS = 9;
+
+export type NavDir = 'up' | 'down' | 'left' | 'right';
 
 export interface PadTarget {
   press(action: Action): void;
@@ -28,8 +35,12 @@ export interface PadTarget {
 export interface PadHandlers {
   /** Options was pressed (pause / resume). */
   onPause(): void;
-  /** Cross or Options while no game is running: confirm the focused menu button. Return true if used. */
-  onConfirm(): boolean;
+  /** Cross or Options: confirm the focused menu button (if a menu is up). Return true if used. */
+  onConfirm(button: 'cross' | 'options'): boolean;
+  /** Circle: back (in menus). */
+  onBack(): void;
+  /** D-pad or stick pushed (and repeated while held): move around a menu. */
+  onNavigate(dir: NavDir): void;
   /** Create (the small button left of the touchpad): mute / unmute voice. */
   onMute(): void;
   /** A controller was connected or disconnected. */
@@ -39,6 +50,7 @@ export interface PadHandlers {
 export class GamepadInput {
   private actionsDown = new Set<Action>();
   private buttonsDown = new Set<number>();
+  private nav: { dir: NavDir | null; next: number } = { dir: null, next: 0 };
   private index: number | null = null;
 
   constructor(private readonly target: PadTarget, private readonly handlers: PadHandlers) {
@@ -87,12 +99,29 @@ export class GamepadInput {
     // Options confirms a menu if one is waiting, otherwise pauses; Cross only confirms.
     const pressedNow = (i: number) => down(i) && !this.buttonsDown.has(i);
     if (pressedNow(OPTIONS)) {
-      if (!this.handlers.onConfirm()) this.handlers.onPause();
+      if (!this.handlers.onConfirm('options')) this.handlers.onPause();
     } else if (pressedNow(CROSS)) {
-      this.handlers.onConfirm();
+      this.handlers.onConfirm('cross');
     }
+    if (pressedNow(CIRCLE)) this.handlers.onBack();
     if (pressedNow(CREATE)) this.handlers.onMute();
-    this.buttonsDown = new Set([CROSS, CREATE, OPTIONS].filter(down));
+    this.buttonsDown = new Set([CROSS, CIRCLE, CREATE, OPTIONS].filter(down));
+
+    // Menu navigation: one step per push of the D-pad or stick, repeating while held.
+    const stickX = Math.abs(x) > Math.abs(y);
+    const dir: NavDir | null =
+      down(12) || (!stickX && y < -STICK_THRESHOLD) ? 'up' :
+      down(13) || (!stickX && y > STICK_THRESHOLD) ? 'down' :
+      down(14) || (stickX && x < -STICK_THRESHOLD) ? 'left' :
+      down(15) || (stickX && x > STICK_THRESHOLD) ? 'right' : null;
+    const t = performance.now();
+    if (dir !== this.nav.dir) {
+      this.nav = { dir, next: t + NAV_DELAY_MS };
+      if (dir) this.handlers.onNavigate(dir);
+    } else if (dir && t >= this.nav.next) {
+      this.nav.next = t + NAV_REPEAT_MS;
+      this.handlers.onNavigate(dir);
+    }
   }
 
   /** Rumble, if the controller and browser support it. */
