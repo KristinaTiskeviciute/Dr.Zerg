@@ -27,7 +27,7 @@ describe('GamepadInput', () => {
     vi.stubGlobal('navigator', { getGamepads: () => [fake.pad] });
     input = new GamepadInput(
       { press: (a: Action) => log.push(`+${a}`), release: (a: Action) => log.push(`-${a}`) },
-      { onPause: () => log.push('pause'), onConfirm: () => { log.push('confirm'); return confirmResult; }, onChange: () => {} },
+      { onPause: () => log.push('pause'), onConfirm: () => { log.push('confirm'); return confirmResult; }, onMute: () => log.push('mute'), onChange: () => {} },
     );
   });
   afterEach(() => vi.unstubAllGlobals());
@@ -61,6 +61,13 @@ describe('GamepadInput', () => {
     confirmResult = true;
     fake.set(9, true); input.poll();
     expect(log).toEqual(['confirm']);
+  });
+
+  it('Create toggles voice mute once per press', () => {
+    fake.set(8, true); input.poll(); input.poll();
+    fake.set(8, false); input.poll();
+    fake.set(8, true); input.poll();
+    expect(log).toEqual(['mute', 'mute']);
   });
 
   it('rumbles through the controller', () => {

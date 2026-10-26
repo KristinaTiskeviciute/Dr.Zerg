@@ -50,6 +50,8 @@ export interface LobbyPlayer {
   level: number;
   speed: Speed;
   connected: boolean;
+  /** In the voice chat. */
+  voice: boolean;
 }
 
 export interface RoomSettings {
@@ -73,6 +75,15 @@ export interface ChatLine {
   text: string;
 }
 
+/**
+ * Voice chat setup between two browsers (WebRTC), passed along by the server: a session
+ * description (offer/answer) or a network address candidate. The audio itself goes directly
+ * between the players (or through a TURN relay), never through the room server.
+ */
+export type RtcSignal =
+  | { sdp: { type: 'offer' | 'answer'; sdp: string } }
+  | { candidate: { candidate: string; sdpMid?: string | null; sdpMLineIndex?: number | null; usernameFragment?: string | null } };
+
 export type ClientMessage =
   | { t: 'join'; playerId: string; name: string }
   | { t: 'setup'; level: number; speed: Speed }
@@ -86,6 +97,10 @@ export type ClientMessage =
   /** Chat and emotes (only offered outside of play: lobby, pause, between rounds). */
   | { t: 'chat'; text: string }
   | { t: 'emote'; e: number }
+  /** Joined or left the voice chat. */
+  | { t: 'voice'; on: boolean }
+  /** Voice chat setup for one other player. */
+  | { t: 'rtc'; to: string; data: RtcSignal }
   // During a match:
   | { t: 'board'; snap: BoardSnapshot }
   /** firstColors = the colors of the chain's first clear; the server uses them to pick targets. */
@@ -126,6 +141,7 @@ export type ServerMessage =
   /** The room's recent chat, sent when you join (or rejoin). */
   | { t: 'chatLog'; lines: ChatLine[] }
   | { t: 'emote'; from: string; name: string; e: number }
+  | { t: 'rtc'; from: string; data: RtcSignal }
   // During a match:
   | { t: 'board'; from: string; snap: BoardSnapshot }
   | { t: 'garbage'; from: string; colors: number[] }
@@ -167,7 +183,7 @@ export function parseClientMessage(raw: string): ClientMessage | null {
   if (!isObj(m)) return null;
   switch (m.t) {
     case 'join':
-      return typeof m.playerId === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(m.playerId)
+      return isPlayerId(m.playerId)
         ? { t: 'join', playerId: m.playerId, name: cleanName(m.name) }
         : null;
     case 'setup':
@@ -192,6 +208,10 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     }
     case 'emote':
       return isInt(m.e, 0, EMOTES.length - 1) ? { t: 'emote', e: m.e } : null;
+    case 'voice':
+      return typeof m.on === 'boolean' ? { t: 'voice', on: m.on } : null;
+    case 'rtc':
+      return isPlayerId(m.to) && isRtcSignal(m.data) ? { t: 'rtc', to: m.to, data: m.data } : null;
     case 'board':
       return isSnapshot(m.snap) ? { t: 'board', snap: m.snap } : null;
     case 'garbage': {
@@ -210,6 +230,28 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     default:
       return null;
   }
+}
+
+const isPlayerId = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(v);
+const isShortString = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max;
+const isOptional = (v: unknown, check: (v: unknown) => boolean) => v === undefined || v === null || check(v);
+
+/** Voice setup messages are relayed as-is, so check their shape and size. */
+export function isRtcSignal(d: unknown): d is RtcSignal {
+  if (!isObj(d)) return false;
+  if (isObj(d.sdp)) {
+    return Object.keys(d).length === 1 && (d.sdp.type === 'offer' || d.sdp.type === 'answer')
+      && isShortString(d.sdp.sdp, 20000) && Object.keys(d.sdp).length === 2;
+  }
+  if (isObj(d.candidate)) {
+    const c = d.candidate;
+    return Object.keys(d).length === 1 && isShortString(c.candidate, 1000)
+      && isOptional(c.sdpMid, v => isShortString(v, 64))
+      && isOptional(c.sdpMLineIndex, v => isInt(v, 0, 64))
+      && isOptional(c.usernameFragment, v => isShortString(v, 256))
+      && Object.keys(c).every(k => ['candidate', 'sdpMid', 'sdpMLineIndex', 'usernameFragment'].includes(k));
+  }
+  return false;
 }
 
 const isInt = (v: unknown, min: number, max: number): v is number =>

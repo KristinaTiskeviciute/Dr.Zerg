@@ -98,6 +98,13 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - The server keeps the last 30 lines (sent on join/rejoin) and limits each player to a burst of 5 messages, then 1/s (server/chat.ts). Text is shown with textContent only.
 - After a round ends the boards stay visible for ROUND_END_LINGER_MS (2 s) before the result covers them; the online break between rounds went from 4 s to 6 s to keep the same time on the result screen.
 
+## Voice chat (online)
+- WebRTC, one direct audio connection per pair of players in voice (up to 3 each); the room server only passes the setup messages along (`rtc`, checked by `isRtcSignal`). The player with the smaller id makes the call. Audio never goes through the room server.
+- Join from the chat tab; works in the lobby and during matches. Mute: the button, V, or Create on a controller. No mic permission → listen only.
+- `/api/ice` gives the browser its network servers: STUN only by default (works when two players can connect directly, most home networks). With a Cloudflare TURN key set as secrets `TURN_KEY_ID` and `TURN_KEY_API_TOKEN`, it adds relay credentials (6 h) for players who can't. TURN: 1,000 GB/month free, then $0.05/GB; voice is ~20 MB per hour per stream.
+- Players see each other's IP addresses on direct connections (fine among friends). Game sounds can leak into an open mic: headphones recommended.
+- Leaving voice / dropping clears your voice flag on the server; after a reconnect the client turns it back on.
+
 ## Later (not scheduled)
 - **Flash mode** (from Dr. Mario 64): germs mixed with 3 flashing ones, one per color; first to clear all 3 wins. Good for short online rounds — could be a room setting.
 - **3–4 players with color targeting** (from Dr. Mario 64): the color of your first clear in a combo picks the target. Blue → next player right, yellow → 2 right, red → 3 right, wrapping; two colors at once hit two players; retired players skipped.

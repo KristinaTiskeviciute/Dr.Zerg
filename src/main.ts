@@ -19,11 +19,13 @@ import {
   BoardSnapshot, EMOTES, makeRoomCode, normalizeRoomCode, RoundResult, START_COUNTDOWN_MS, StartInfo,
 } from './net/protocol';
 import { encodeSnapshot, snapshotView } from './net/snapshot';
+import { VoiceChat } from './net/voice';
 import { ChatBox, isTyping, popEmote } from './ui/chat';
 import { $, loadSettings, saveSettings, Settings, SKILL_LABEL, SPEED_LABEL } from './ui/dom';
 import { PlayersHud } from './ui/hud';
 import { ChatMessage, MatchMessage, OnlineRoom } from './ui/lobby';
 import { OpponentBoards } from './ui/opponents';
+import { VoiceBar } from './ui/voice';
 
 const canvas = $<HTMLCanvasElement>('#board');
 const ctx = canvas.getContext('2d')!;
@@ -46,6 +48,7 @@ const pad = new GamepadInput(keyboard, {
     }
     return false;
   },
+  onMute: () => voice.toggleMute(),
   onChange: () => renderPadUi(),
 });
 const rumble = new Rumble(pad);
@@ -149,8 +152,14 @@ const room = new OnlineRoom(settings, {
   onStart: startOnline,
   onMatchMessage: onMatchMessage,
   onChat: onChat,
+  onLobby: lobby => {
+    voice.sync(lobby.players);
+    voiceBar.setPlayers(lobby.players);
+  },
+  onRtc: (from, data) => void voice.onSignal(from, data),
   inMatch: () => session?.kind === 'online',
   onLeave: error => {
+    voice.leave();
     showMenu();
     $('#menu-error').textContent = error ?? '';
   },
@@ -160,6 +169,16 @@ const room = new OnlineRoom(settings, {
 
 const chat = new ChatBox(room.me, msg => room.send(msg), () => { if (session) sizeCanvases(); });
 const lobbyScreen = $('#lobby');
+
+// Voice: direct audio between the players, set up through the room server.
+const voice = new VoiceChat(room.me, msg => room.send(msg), () => {
+  voiceBar.render();
+  chat.setTabIcon(voiceBar.tabIcon);
+});
+const voiceBar = new VoiceBar(chat.voiceSlot, voice, room.me);
+window.addEventListener('keydown', e => {
+  if (e.code === 'KeyV' && !e.repeat && !isTyping(e) && voice.status === 'on') voice.toggleMute();
+});
 const overlayEl = $('#overlay');
 
 function onChat(msg: ChatMessage): void {
@@ -892,6 +911,7 @@ function frame(now: number): void {
   if (session?.kind === 'online') updateOnline(session, now);
   if (session?.kind === 'cpu') updateCpuCountdown(session, now);
   updateChat();
+  voiceBar.tick();
 
   if (running()) {
     acc += dt;

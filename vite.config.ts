@@ -5,6 +5,7 @@ export default defineConfig({
     // In development the relay runs separately (`npm run dev:server`, port 8787).
     proxy: {
       '/parties': { target: 'http://localhost:8787', ws: true },
+      '/api': { target: 'http://localhost:8787' },
     },
   },
 });

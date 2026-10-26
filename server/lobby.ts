@@ -59,7 +59,7 @@ export class Lobby {
     }
     if (this.phase === 'playing') return fail('inProgress', 'A game is already being played in this room.');
     if (this.players.length >= MAX_PLAYERS) return fail('full', 'This room is full.');
-    this.players.push({ id, name, ready: false, level: 5, speed: 'med', connected: true });
+    this.players.push({ id, name, ready: false, level: 5, speed: 'med', connected: true, voice: false });
     this.hostId ??= id;
     return ok(undefined);
   }
@@ -69,7 +69,20 @@ export class Lobby {
     const p = this.find(id);
     if (!p) return;
     p.connected = false;
+    p.voice = false; // their voice connections are gone; they rejoin voice when they're back
     if (this.phase === 'lobby') p.ready = false;
+  }
+
+  /** Joined or left the voice chat (any time, also mid-match). */
+  setVoice(id: string, on: boolean): Result {
+    const p = this.find(id);
+    if (!p) return fail('notAllowed', 'Join the room first.');
+    p.voice = on;
+    return ok(undefined);
+  }
+
+  isHere(id: string): boolean {
+    return this.find(id) !== undefined;
   }
 
   isConnected(id: string): boolean {

@@ -22,7 +22,10 @@ export function isTyping(e: Event): boolean {
  * work outside of play (lobby, pause, between rounds).
  */
 export class ChatBox {
+  /** Space at the top of the chat for the voice controls. */
+  readonly voiceSlot: HTMLElement;
   private readonly dock: HTMLElement;
+  private readonly tabIcon: HTMLElement;
   private readonly log: HTMLElement;
   private readonly input: HTMLInputElement;
   private readonly badge: HTMLElement;
@@ -53,11 +56,15 @@ export class ChatBox {
     tabText.textContent = 'Chat';
     this.badge = document.createElement('span');
     this.badge.className = 'badge hidden';
-    tab.append(tabText, this.badge);
+    this.tabIcon = document.createElement('span');
+    this.tabIcon.className = 'tab-icon';
+    tab.append(this.tabIcon, tabText, this.badge);
     tab.addEventListener('click', () => { this.setOpen(!this.open); tab.blur(); });
 
     const body = document.createElement('div');
     body.className = 'chat';
+    this.voiceSlot = document.createElement('div');
+    this.voiceSlot.className = 'voice';
     this.log = document.createElement('ul');
     this.log.className = 'chat-log';
 
@@ -92,7 +99,7 @@ export class ChatBox {
       emotes.append(b);
     });
 
-    body.append(this.log, form, emotes);
+    body.append(this.voiceSlot, this.log, form, emotes);
     this.dock.append(tab, body);
     document.body.append(this.dock);
     window.addEventListener('resize', () => this.render()); // narrow windows don't keep room for it
@@ -124,6 +131,11 @@ export class ChatBox {
   get reservedWidth(): number {
     if (!this.shown || window.innerWidth < OVERLAY_BELOW_PX) return this.shown ? TAB_PX : 0;
     return this.open ? OPEN_PX : TAB_PX;
+  }
+
+  /** A marker on the tab (e.g. 🎤 while in voice), visible even when collapsed. */
+  setTabIcon(icon: string): void {
+    if (this.tabIcon.textContent !== icon) this.tabIcon.textContent = icon;
   }
 
   /** Start typing (opens the chat if it's collapsed). */

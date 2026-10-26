@@ -5,7 +5,7 @@ import { Action } from './keyboard';
  * Uses the "standard" button layout, which the browser maps for us:
  *   Circle (1) rotate clockwise · Cross (0) rotate counter-clockwise
  *   D-pad / left stick: left/right move, down soft drop, D-pad up rotate clockwise
- *   Options (9) pause · Cross or Options also confirms menus between rounds
+ *   Options (9) pause · Cross or Options also confirms menus between rounds · Create (8) voice mute
  */
 const BUTTON_ACTIONS: [button: number, action: Action][] = [
   [1, 'rotateCW'], // Circle
@@ -17,6 +17,7 @@ const BUTTON_ACTIONS: [button: number, action: Action][] = [
 ];
 const STICK_THRESHOLD = 0.5;
 const CROSS = 0;
+const CREATE = 8;
 const OPTIONS = 9;
 
 export interface PadTarget {
@@ -29,6 +30,8 @@ export interface PadHandlers {
   onPause(): void;
   /** Cross or Options while no game is running: confirm the focused menu button. Return true if used. */
   onConfirm(): boolean;
+  /** Create (the small button left of the touchpad): mute / unmute voice. */
+  onMute(): void;
   /** A controller was connected or disconnected. */
   onChange(connected: boolean): void;
 }
@@ -88,7 +91,8 @@ export class GamepadInput {
     } else if (pressedNow(CROSS)) {
       this.handlers.onConfirm();
     }
-    this.buttonsDown = new Set([CROSS, OPTIONS].filter(down));
+    if (pressedNow(CREATE)) this.handlers.onMute();
+    this.buttonsDown = new Set([CROSS, CREATE, OPTIONS].filter(down));
   }
 
   /** Rumble, if the controller and browser support it. */

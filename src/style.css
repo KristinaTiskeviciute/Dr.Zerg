@@ -320,6 +320,24 @@ canvas { display: block; image-rendering: pixelated; }
 .emotes button:disabled { filter: grayscale(1); }
 .overlay { overflow-y: auto; }
 
+/* Voice controls at the top of the chat */
+.voice { display: flex; flex-direction: column; gap: 8px; }
+.voice-row { display: flex; gap: 8px; }
+.voice-row button { flex: 1; font-size: 9px; padding: 9px 6px 8px; }
+.voice-row button.off { background: #6b2b2b; }
+.voice-row button.quiet { flex: none; }
+.voice-note { margin: 0; font-size: 8px; color: var(--muted); line-height: 1.7; }
+.voice-note:empty { display: none; }
+.voice-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 9px; }
+.voice-list:empty { display: none; }
+.voice-list li { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.voice-list .name { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-list .state { color: var(--muted); font-size: 7px; }
+.voice-list .dot { width: 8px; height: 8px; background: #343a7a; box-shadow: 0 0 0 2px var(--edge); flex: none; }
+.voice-list .dot.talking { background: #4fe07a; box-shadow: 0 0 0 2px var(--edge), 0 0 8px #4fe07a; }
+.chat-tab .tab-icon { writing-mode: horizontal-tb; font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif; font-size: 12px; }
+.chat-tab .tab-icon:empty { display: none; }
+
 /* An emote pops up big over a bottle (or the lobby), then floats away. */
 .emote-pop {
   position: absolute; left: 50%; top: 42%; z-index: 3;

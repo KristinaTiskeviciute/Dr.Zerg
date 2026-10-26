@@ -1,6 +1,6 @@
 import { Speed } from '../config';
 import { ConnectionStatus, playerId, RoomConnection } from '../net/client';
-import { ClientMessage, LobbyState, MAX_PLAYERS, MIN_PLAYERS, ServerMessage, StartInfo } from '../net/protocol';
+import { ClientMessage, LobbyState, RtcSignal, MAX_PLAYERS, MIN_PLAYERS, ServerMessage, StartInfo } from '../net/protocol';
 import { $, saveSettings, Settings, SPEED_LABEL } from './dom';
 
 const SLOW_CONNECT_MS = 5000;
@@ -15,6 +15,10 @@ export interface RoomCallbacks {
   onStart(info: StartInfo): void;
   onMatchMessage(msg: MatchMessage): void;
   onChat(msg: ChatMessage): void;
+  /** Every lobby update (who's here, who's in voice). */
+  onLobby(lobby: LobbyState): void;
+  /** Voice chat setup from another player. */
+  onRtc(from: string, data: RtcSignal): void;
   /** True while you're actually playing a round on this tab. */
   inMatch(): boolean;
   /** You left the room (or were turned away): back to the menu. */
@@ -120,6 +124,7 @@ export class OnlineRoom {
           this.send({ t: 'result', outcome: 'forfeit' });
         }
         if (msg.lobby.phase === 'lobby') this.forfeited = false;
+        this.cb.onLobby(msg.lobby);
         this.render();
         break;
       case 'start':
@@ -139,6 +144,9 @@ export class OnlineRoom {
       case 'chatLog':
       case 'emote':
         this.cb.onChat(msg);
+        break;
+      case 'rtc':
+        this.cb.onRtc(msg.from, msg.data);
         break;
       case 'error':
         console.warn(`[room ${this.code}] server says: ${msg.code}: ${msg.message}`);

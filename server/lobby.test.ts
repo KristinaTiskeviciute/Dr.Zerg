@@ -22,6 +22,17 @@ describe('Lobby', () => {
     expect(l.state.players.map(p => p.id)).toEqual(ids);
   });
 
+  it('tracks who is in voice, also mid-match, and forgets it when they drop', () => {
+    const l = twoReady();
+    expect(l.setVoice('alice-1', true).ok).toBe(true);
+    expect(l.start('alice-1', 1).ok).toBe(true);
+    expect(l.setVoice('bob-123', true).ok).toBe(true);
+    expect(l.state.players.map(p => p.voice)).toEqual([true, true]);
+    l.disconnect('bob-123');
+    expect(l.state.players[1].voice).toBe(false);
+    expect(l.setVoice('nobody-1', true).ok).toBe(false);
+  });
+
   it('turns away a fifth player', () => {
     const l = ready(4);
     const r = l.join('eve-1234', 'Eve');

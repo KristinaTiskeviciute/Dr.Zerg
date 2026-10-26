@@ -36,3 +36,22 @@ describe('chat', () => {
     expect(parseClientMessage('{"t":"emote","e":"😭"}')).toBeNull();
   });
 });
+
+describe('voice setup messages', () => {
+  const offer = { sdp: { type: 'offer', sdp: 'v=0...' } };
+  const cand = { candidate: { candidate: 'candidate:1 1 udp 2122260223 192.168.1.2 50000 typ host', sdpMid: '0', sdpMLineIndex: 0, usernameFragment: 'abcd' } };
+
+  it('passes valid offers, answers and candidates', () => {
+    expect(parseClientMessage(JSON.stringify({ t: 'rtc', to: 'bob-123', data: offer }))).toEqual({ t: 'rtc', to: 'bob-123', data: offer });
+    expect(parseClientMessage(JSON.stringify({ t: 'rtc', to: 'bob-123', data: cand }))).toEqual({ t: 'rtc', to: 'bob-123', data: cand });
+    expect(parseClientMessage('{"t":"voice","on":true}')).toEqual({ t: 'voice', on: true });
+  });
+
+  it('rejects anything else', () => {
+    expect(parseClientMessage(JSON.stringify({ t: 'rtc', to: 'x', data: offer }))).toBeNull(); // bad id
+    expect(parseClientMessage(JSON.stringify({ t: 'rtc', to: 'bob-123', data: { sdp: { type: 'rollback', sdp: '' } } }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ t: 'rtc', to: 'bob-123', data: { sdp: { type: 'offer', sdp: 'x'.repeat(30000) } } }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ t: 'rtc', to: 'bob-123', data: { ...offer, extra: 1 } }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ t: 'rtc', to: 'bob-123', data: { candidate: { candidate: 'c', evil: 'x' } } }))).toBeNull();
+  });
+});

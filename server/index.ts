@@ -48,6 +48,13 @@ export class Room extends Server<Env> {
       case 'emote':
         if (this.chat.allow(id, Date.now())) this.broadcastJson({ t: 'emote', from: id, name: this.lobby.nameOf(id), e: msg.e });
         return;
+      case 'rtc': {
+        // Voice setup: pass it to that one player.
+        if (!this.lobby.isHere(msg.to) || msg.to === id) return;
+        const out: ServerMessage = { t: 'rtc', from: id, data: msg.data };
+        for (const c of this.getConnections<ConnState>()) if (c.state?.playerId === msg.to) this.send(c, out);
+        return;
+      }
       case 'board':
         if (this.lobby.inMatch) this.broadcastJson({ t: 'board', from: id, snap: msg.snap }, [conn.id]);
         return;
@@ -77,6 +84,7 @@ export class Room extends Server<Env> {
     switch (msg.t) {
       case 'setup': res = this.lobby.setup(id, msg.level, msg.speed); break;
       case 'ready': res = this.lobby.setReady(id, msg.ready); break;
+      case 'voice': res = this.lobby.setVoice(id, msg.on); break;
       case 'settings': res = this.lobby.setSettings(id, { fastGarbage: msg.fastGarbage, outbreak: msg.outbreak }); break;
       case 'backToLobby':
         this.clearNextRound();
@@ -193,8 +201,47 @@ export class Room extends Server<Env> {
   }
 }
 
+/** Optional Cloudflare TURN key (secrets), for voice when two players can't connect directly. */
+interface TurnEnv {
+  TURN_KEY_ID?: string;
+  TURN_KEY_API_TOKEN?: string;
+}
+
+const STUN_ONLY: RTCIceServerJson[] = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
+interface RTCIceServerJson { urls: string | string[]; username?: string; credential?: string }
+
+/**
+ * Network servers for voice chat. With a TURN key set up, fresh relay credentials (good for a
+ * few hours); otherwise just STUN, which works whenever the two players can connect directly.
+ */
+async function iceServers(env: TurnEnv): Promise<Response> {
+  let servers = STUN_ONLY;
+  let relay = false;
+  if (env.TURN_KEY_ID && env.TURN_KEY_API_TOKEN) {
+    try {
+      const res = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_KEY_ID}/credentials/generate-ice-servers`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${env.TURN_KEY_API_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ttl: 6 * 60 * 60 }),
+      });
+      if (res.ok) {
+        const body = await res.json() as { iceServers: RTCIceServerJson[] };
+        // Browsers block port 53, so those addresses would only time out.
+        servers = body.iceServers.map(s => ({ ...s, urls: [s.urls].flat().filter(u => !/:53(\?|$)/.test(u)) }));
+        relay = true;
+      } else {
+        console.warn(`TURN credentials: ${res.status} ${await res.text()}`);
+      }
+    } catch (err) {
+      console.warn(`TURN credentials failed: ${err}`);
+    }
+  }
+  return Response.json({ iceServers: servers, relay }, { headers: { 'Cache-Control': 'no-store' } });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    if (new URL(request.url).pathname === '/api/ice') return iceServers(env as Env & TurnEnv);
     const routed = await routePartykitRequest(request, env, {
       // Rooms live in eastern North America: roughly halfway between Norway and California.
       locationHint: 'enam',
