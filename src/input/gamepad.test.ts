@@ -99,6 +99,30 @@ describe('GamepadInput', () => {
     expect(fake.effects).toEqual([{ startDelay: 0, duration: 100, strongMagnitude: 0.5, weakMagnitude: 1 }]);
   });
 
+  it('routes each controller to its own player, and says which one pressed a menu button', () => {
+    const second = fakePad();
+    second.pad.index = 1;
+    vi.stubGlobal('navigator', { getGamepads: () => [fake.pad, second.pad] });
+    const p1: string[] = [];
+    const p2: string[] = [];
+    input.route = i => (i === 0 ? { press: a => p1.push(a), release: () => {} } : { press: a => p2.push(a), release: () => {} });
+    fake.set(14, true); second.set(15, true); input.poll();
+    expect(p1).toEqual(['left']);
+    expect(p2).toEqual(['right']);
+    const who: number[] = [];
+    input = new GamepadInput({ press: () => {}, release: () => {} }, {
+      onPause: () => {}, onConfirm: (_b, pad) => { who.push(pad); return true; }, onBack: () => {}, onMute: () => {}, onNavigate: () => {}, onChange: () => {},
+    });
+    second.set(0, true); input.poll();
+    expect(who).toEqual([1]);
+  });
+
+  it('a controller nobody joined with drives nothing', () => {
+    input.route = () => null;
+    fake.set(14, true); input.poll();
+    expect(log.filter(l => l.startsWith('+'))).toEqual([]);
+  });
+
   it('does nothing without a controller', () => {
     vi.stubGlobal('navigator', { getGamepads: () => [null] });
     input.poll();

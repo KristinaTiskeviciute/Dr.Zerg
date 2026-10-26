@@ -31,9 +31,11 @@
           <div class="seg seg-mode" id="mode">
             <button type="button" data-value="solo">Solo</button>
             <button type="button" data-value="cpu">Vs CPU</button>
+            <button type="button" data-value="local">Local</button>
             <button type="button" data-value="online">Online</button>
           </div>
-          <div class="panel-cols not-online">
+          <p class="local-only menu-note">2–4 players on this screen: controllers, the keyboard, and CPUs.</p>
+          <div class="panel-cols not-online not-local">
             <div class="col">
               <h3 class="cpu-only">You</h3>
               <div class="field">
@@ -174,9 +176,43 @@
         </div>
       </section>
 
+      <section id="local" class="screen hidden">
+        <div class="panel lobby-panel">
+          <div class="lobby-head">
+            <div>
+              <span class="label">Local match</span>
+              <strong class="local-title">Same screen</strong>
+            </div>
+          </div>
+          <p class="status" id="local-status"></p>
+          <ul class="players" id="local-players"></ul>
+          <div class="lobby-actions">
+            <button type="button" id="local-keyboard">⌨ Join with keyboard</button>
+            <button type="button" id="local-add-cpu">+ Add CPU</button>
+          </div>
+          <div class="field">
+            <span class="label">Fast garbage <small>(hold ↓ to speed up garbage and loose blocks)</small></span>
+            <div class="seg" id="local-fast">
+              <button type="button" data-value="off">Off</button>
+              <button type="button" data-value="on">On</button>
+            </div>
+          </div>
+          <div class="field">
+            <span class="label">Outbreak <small>(3–4 players: every chain hits everyone)</small></span>
+            <div class="seg" id="local-outbreak">
+              <button type="button" data-value="off">Off</button>
+              <button type="button" data-value="on">On</button>
+            </div>
+          </div>
+          <button type="button" id="local-start" class="primary">Start</button>
+          <button type="button" id="local-back" class="quiet">Back to menu</button>
+        </div>
+      </section>
+
       <section id="play" class="screen hidden">
         <div class="stage">
           <canvas id="board"></canvas>
+          <span class="label board-label" id="board-label"></span>
           <div id="overlay" class="overlay hidden">
             <h2 id="overlay-title"></h2>
             <p id="overlay-sub"></p>
@@ -188,8 +224,8 @@
             <span class="label">Rounds</span>
             <div id="hud-rounds" class="hud-rounds"></div>
           </div>
-          <div><span class="label">Level</span><strong id="hud-level">0</strong></div>
-          <div><span class="label">Speed</span><strong id="hud-speed">Med</strong></div>
+          <div class="not-local"><span class="label">Level</span><strong id="hud-level">0</strong></div>
+          <div class="not-local"><span class="label">Speed</span><strong id="hud-speed">Med</strong></div>
           <div>
             <span class="label">Germs</span>
             <div class="germ-counts" id="hud-germ-list"></div>

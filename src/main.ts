@@ -1,6 +1,6 @@
 import { audio, VolumeKind } from './audio/audio';
 import {
-  BOARD_SNAPSHOT_HZ, CPU_SKILLS, ENDGAME_GERMS, ENDGAME_MUSIC_BOOST, MAX_FRAME_MS, MAX_LEVEL, MUSIC_MAX_RATE,
+  BOARD_SNAPSHOT_HZ, CPU_SKILLS, CpuSkillName, ENDGAME_GERMS, ENDGAME_MUSIC_BOOST, MAX_FRAME_MS, MAX_LEVEL, MUSIC_MAX_RATE,
   MUSIC_SPEEDUP_PER_STEP, OPPONENT_BOARD_SCALE, ROUND_END_LINGER_MS, SIM_STEP_MS,
 } from './config';
 import { CpuController } from './core/ai';
@@ -11,6 +11,7 @@ import { garbageTargets } from './core/targeting';
 import { Color, COLORS } from './core/types';
 import { GamepadInput, NavDir } from './input/gamepad';
 import { KeyboardInput } from './input/keyboard';
+import { LocalSeat, LocalSetup, CPU_NAMES, deviceLabel, seatNames } from './ui/local';
 import { Rumble } from './input/rumble';
 import { boardPixelSize, drawBoard, drawGerm } from './render/draw';
 import { BoardEffects } from './render/effects';
@@ -41,7 +42,7 @@ keyboard.attach();
 
 const pad = new GamepadInput(keyboard, {
   onPause: () => togglePause(),
-  onConfirm: button => padConfirm(button),
+  onConfirm: (button, index) => padConfirm(button, index),
   onBack: () => padBack(),
   onMute: () => voice.toggleMute(),
   onNavigate: dir => padNavigate(dir),
@@ -59,11 +60,16 @@ function renderPadUi(): void {
 }
 const youFx = new BoardEffects();
 
+/** A seat in a match on this computer: a person with their own input, or a CPU. */
+type Seat =
+  | { kind: 'person'; input: KeyboardInput; rumble: Rumble }
+  | { kind: 'cpu'; ai: CpuController; skill: CpuSkillName };
+
 /** What's being played right now. */
 type Session =
   | { kind: 'solo'; game: Game }
-  // startAt = end of the 3-2-1 countdown before each round.
-  | { kind: 'cpu'; match: Match; cpus: CpuController[]; startAt: number }
+  // Vs CPU and local matches. startAt = end of the 3-2-1 countdown before each round.
+  | { kind: 'cpu'; match: Match; seats: Seat[]; startAt: number; local: boolean }
   | OnlineSession;
 
 /** An opponent in an online round: their latest board snapshot and whether they're knocked out. */
@@ -342,11 +348,14 @@ function renderMenu(): void {
   for (const r of menuRenderers) r();
   $('#menu').classList.toggle('cpu', settings.mode === 'cpu');
   $('#menu').classList.toggle('online', settings.mode === 'online');
+  $('#menu').classList.toggle('local', settings.mode === 'local');
   $('#menu').classList.toggle('multi', settings.cpuCount >= 2); // Outbreak only matters with 3+ players
   $<HTMLInputElement>('#menu-name').value = settings.name;
 }
 
-$('#start').addEventListener('click', () => (settings.mode === 'cpu' ? startCpuMatch() : startSolo(settings.level)));
+$('#start').addEventListener('click', () => (
+  settings.mode === 'cpu' ? startCpuMatch() : settings.mode === 'local' ? localSetup.show() : startSolo(settings.level)
+));
 
 $<HTMLInputElement>('#menu-name').addEventListener('input', e => {
   settings.name = (e.target as HTMLInputElement).value.trim().slice(0, 16);
@@ -365,6 +374,8 @@ joinCode.addEventListener('keydown', e => { if (e.key === 'Enter') joinTypedRoom
 function showMenu(): void {
   session = null;
   cpuRunner.stop();
+  routePads(null);
+  localSetup.hide();
   keyboard.enabled = false;
   audio.stopMusic();
   hideOverlay();
@@ -383,15 +394,17 @@ function enterPlay(): void {
   acc = 0;
   youFx.reset();
   opponents.reset();
-  keyboard.reset();
   keyboard.enabled = true;
+  resetInputs();
   audio.startMusic();
   hideOverlay();
   $('#menu').classList.add('hidden');
   $('#lobby').classList.add('hidden');
+  localSetup.hide();
   $('#play').classList.remove('hidden');
   $('#play').classList.toggle('vs', session?.kind === 'cpu' || session?.kind === 'online');
   $('#play').classList.toggle('online', session?.kind === 'online');
+  $('#play').classList.toggle('local', session?.kind === 'cpu' && session.local);
   const me = you();
   $('#hud-level').textContent = String(me?.level ?? settings.level);
   $('#hud-speed').textContent = SPEED_LABEL[me?.speed ?? settings.speed];
@@ -403,15 +416,32 @@ function startSolo(level: number): void {
   settings.level = level;
   saveSettings(settings);
   session = { kind: 'solo', game: new Game({ level, speed: settings.speed, seed: randomSeed(), playerSalt: 'solo' }) };
+  routePads(null);
   setupPlayers(['You'], []);
   enterPlay();
 }
 
-/** CPU opponents are named after the germs. */
-const CPU_NAMES = ['Spike', 'Buzz', 'Peep'];
+function newCpu(skill: CpuSkillName): Seat {
+  return { kind: 'cpu', ai: new CpuController(CPU_SKILLS[skill], randomSeed()), skill };
+}
 
-function newCpus(count: number): CpuController[] {
-  return Array.from({ length: count }, () => new CpuController(CPU_SKILLS[settings.cpuSkill], randomSeed()));
+/**
+ * Where controllers' game buttons go: everyone drives the one player (null), or in a local
+ * match each controller drives its own seat (and controllers nobody joined with do nothing).
+ */
+function routePads(pads: Map<number, KeyboardInput> | null): void {
+  pad.route = pads ? i => pads.get(i) ?? null : () => keyboard;
+}
+
+/** Everyone's input on this computer (the keyboard, plus each local player's controller). */
+function personInputs(): KeyboardInput[] {
+  if (session?.kind !== 'cpu') return [keyboard];
+  return session.seats.flatMap(s => (s.kind === 'person' ? [s.input] : []));
+}
+
+/** Forget held buttons (new round, pause): nobody's capsule moves from a button held over. */
+function resetInputs(): void {
+  for (const input of personInputs()) input.reset();
 }
 
 function startCpuMatch(): void {
@@ -425,13 +455,52 @@ function startCpuMatch(): void {
     fastGarbage: settings.fastGarbage,
     outbreak: settings.outbreak && count >= 2,
   });
-  session = { kind: 'cpu', match, cpus: newCpus(count), startAt: performance.now() + START_COUNTDOWN_MS };
+  session = {
+    kind: 'cpu', match, local: false, startAt: performance.now() + START_COUNTDOWN_MS,
+    seats: [{ kind: 'person', input: keyboard, rumble }, ...Array.from({ length: count }, () => newCpu(settings.cpuSkill))],
+  };
+  routePads(null);
   overlayKey = '';
   const names = count === 1 ? ['CPU'] : CPU_NAMES.slice(0, count);
   const detail = `${SKILL_LABEL[settings.cpuSkill]} · Lv ${settings.cpuLevel}`;
   setupPlayers(['You', ...names], names.map(n => (count === 1 ? `CPU · ${detail}` : `${n} · ${detail}`)));
   $('#hud-fast').classList.toggle('hidden', !settings.fastGarbage);
   $('#hud-outbreak').classList.toggle('hidden', !(settings.outbreak && count >= 2));
+  enterPlay();
+}
+
+// --- Local matches: several people on this screen (controllers, the keyboard) and CPUs ---
+
+const localSetup = new LocalSetup(settings, { onStart: startLocal, onBack: showMenu });
+/** The last local lineup, for "Play again". */
+let lastLocal: LocalSeat[] = [];
+
+function startLocal(lineup: LocalSeat[]): void {
+  lastLocal = lineup;
+  const names = seatNames(lineup);
+  const match = new Match({
+    players: lineup.map(s => ({ level: s.level, speed: s.speed })),
+    seed: randomSeed(),
+    fastGarbage: settings.fastGarbage,
+    outbreak: settings.outbreak && lineup.length >= 3,
+  });
+  const pads = new Map<number, KeyboardInput>();
+  const seats: Seat[] = lineup.map(s => {
+    if (s.kind === 'cpu') return newCpu(s.skill);
+    if (s.device === 'keyboard') return { kind: 'person', input: keyboard, rumble: rumble.forPad(-1) };
+    const input = new KeyboardInput(); // fed by that controller only
+    input.enabled = true;
+    pads.set(s.device, input);
+    return { kind: 'person', input, rumble: rumble.forPad(s.device) };
+  });
+  session = { kind: 'cpu', match, seats, local: true, startAt: performance.now() + START_COUNTDOWN_MS };
+  routePads(pads);
+  overlayKey = '';
+  const label = (s: LocalSeat, i: number) => `${names[i]} · ${deviceLabel(s)} · Lv ${s.level} · ${SPEED_LABEL[s.speed]}`;
+  setupPlayers(names, lineup.slice(1).map((s, k) => label(s, k + 1)));
+  $('#board-label').textContent = label(lineup[0], 0);
+  $('#hud-fast').classList.toggle('hidden', !settings.fastGarbage);
+  $('#hud-outbreak').classList.toggle('hidden', !(settings.outbreak && lineup.length >= 3));
   enterPlay();
 }
 
@@ -446,6 +515,7 @@ function startOnline(info: StartInfo): void {
   const me = info.players.find(p => p.id === room.me);
   const others = info.players.filter(p => p.id !== room.me);
   if (!me || others.length === 0) return;
+  routePads(null);
   const now = performance.now();
   session = {
     kind: 'online',
@@ -673,13 +743,13 @@ function setOverlayState(key: string, title: string, sub: string, buttons: [stri
 function nextRound(): void {
   if (session?.kind !== 'cpu') return;
   session.match.nextRound();
-  session.cpus = newCpus(session.cpus.length);
+  session.seats = session.seats.map(s => (s.kind === 'cpu' ? newCpu(s.skill) : s));
   session.startAt = performance.now() + START_COUNTDOWN_MS;
   paused = false;
   acc = 0;
   youFx.reset();
   opponents.reset();
-  keyboard.reset();
+  resetInputs();
   audio.startMusic();
   lastMusicRate = 1;
   $('#hud-speed').textContent = SPEED_LABEL[settings.speed];
@@ -691,7 +761,8 @@ function nextRound(): void {
 function updateCpuCountdown(s: Extract<Session, { kind: 'cpu' }>, now: number): void {
   if (s.match.state !== 'playing' || paused) return;
   if (now < s.startAt) {
-    const vs = s.cpus.length === 1 ? 'vs CPU' : `vs ${s.cpus.length} CPUs`;
+    const n = s.seats.length - 1;
+    const vs = s.local ? hud.playerNames.join(' vs ') : n === 1 ? 'vs CPU' : `vs ${n} CPUs`;
     setOverlayState('countdown', String(Math.ceil((s.startAt - now) / 1000)), s.match.round > 1 ? `Round ${s.match.round}` : vs, []);
   } else if (overlayKey === 'countdown') {
     overlayKey = '';
@@ -706,7 +777,9 @@ function updateCpuCountdown(s: Extract<Session, { kind: 'cpu' }>, now: number): 
 function sizeCanvases(): void {
   const { width, height } = boardPixelSize(8, 16);
   const n = opponents.count;
-  const oppScale = n <= 1 ? OPPONENT_BOARD_SCALE : n === 2 ? 0.6 : 0.5;
+  // Local matches: everyone's bottle is the same size.
+  const local = session?.kind === 'cpu' && session.local;
+  const oppScale = n <= 1 || local ? OPPONENT_BOARD_SCALE : n === 2 ? 0.6 : 0.5;
   const narrow = window.innerWidth <= 520;
   const availW = window.innerWidth - (narrow ? 32 : 260) - n * 32 - chat.reservedWidth;
   // Leave room for the page padding, and in versus for the opponents' names under their bottles.
@@ -726,11 +799,12 @@ window.addEventListener('resize', () => { if (session) sizeCanvases(); });
 
 // --- Events and results ---
 
-function handleYourEvents(events: GameEvent[]): void {
+/** A person's board events on this computer: sounds, their rumble, and their input's per-capsule reset. */
+function handleYourEvents(events: GameEvent[], input = keyboard, rum = rumble): void {
   for (const e of events) {
     playSound(e);
-    rumble.forEvent(e);
-    if (e.type === 'spawn') keyboard.onNewCapsule();
+    rum.forEvent(e);
+    if (e.type === 'spawn') input.onNewCapsule();
     if (e.type === 'speedUp') {
       audio.jingle('speedUp');
       flashSpeed(e.step);
@@ -803,6 +877,7 @@ function onSoloOver(game: Game): void {
 
 function onRoundOver(match: Match): void {
   audio.stopMusic();
+  if (session?.kind === 'cpu' && session.local) return onLocalRoundOver(match, session.seats);
   const names = hud.playerNames;
   const n = match.playerCount;
   /** "You", "The CPU" (one opponent) or the CPU's name. */
@@ -834,6 +909,34 @@ function onRoundOver(match: Match): void {
   }
 }
 
+/** A local match round ended: everyone on this screen is named (P1, P2, Spike…). */
+function onLocalRoundOver(match: Match, seats: Seat[]): void {
+  const names = hud.playerNames;
+  const w = match.roundWinner;
+  const why =
+    w === null ? 'Nobody made it' :
+    match.games[w].phase === 'won' ? `${names[w]} cleared their bottle` :
+    match.playerCount === 2 ? `${names[1 - w]} topped out` :
+    `${names[w]} is the last one standing`;
+  const score = match.playerCount === 2
+    ? `${names[0]} ${match.wins[0]} – ${match.wins[1]} ${names[1]}`
+    : names.map((name, i) => `${name} ${match.wins[i]}`).join(' · ');
+  if (w !== null) audio.jingle(seats[w].kind === 'person' ? 'win' : 'lose');
+  seats.forEach((s, i) => { if (s.kind === 'person') s.rumble.roundEnd(i === w); });
+
+  if (match.state === 'matchOver') {
+    const mw = match.matchWinner!;
+    showOverlayLater(ROUND_END_LINGER_MS, `${names[mw]} wins the match!`, `${why}. ${score}`, [
+      ['Play again', () => startLocal(lastLocal)],
+      ['Change players', () => { session = null; audio.stopMusic(); localSetup.show(); }],
+      ['Menu', showMenu],
+    ]);
+  } else {
+    const title = w === null ? 'Draw!' : `${names[w]} takes round ${match.round}`;
+    showOverlayLater(ROUND_END_LINGER_MS, title, w === null ? score : `${why}. ${score}`, [['Next round', nextRound], ['Menu', showMenu]]);
+  }
+}
+
 function togglePause(): void {
   if (session?.kind === 'online') {
     // Shared pause: the server tells both players; resuming has a countdown.
@@ -844,7 +947,7 @@ function togglePause(): void {
   if (!running() && !paused) return;
   paused = !paused;
   audio.setMusicPaused(paused);
-  keyboard.reset();
+  resetInputs();
   if (paused) showOverlay('Paused', 'Press P to resume', [['Resume', togglePause], ['Quit to menu', showMenu]]);
   else hideOverlay();
 }
@@ -878,7 +981,7 @@ function menuActive(): boolean {
 
 /** Where the selection starts when nothing is selected yet. */
 function defaultControl(list: HTMLElement[]): HTMLElement | undefined {
-  for (const sel of ['.osk button', '#overlay-buttons button', '#ready-btn', '#start', '#create-room']) {
+  for (const sel of ['.osk button', '#overlay-buttons button', '#ready-btn', '#local-start', '#start', '#create-room']) {
     const el = list.find(e => e.matches(sel));
     if (el) return el;
   }
@@ -905,8 +1008,13 @@ function padNavigate(dir: NavDir): void {
   }
 }
 
-function padConfirm(button: 'cross' | 'options'): boolean {
+function padConfirm(button: 'cross' | 'options', index: number): boolean {
   if (!menuActive()) return false;
+  // Local match setup: ✕ on a controller that hasn't joined yet joins with it.
+  if (button === 'cross' && localSetup.joinPad(index)) {
+    audio.play('rotate');
+    return true;
+  }
   document.body.classList.add('pad-nav');
   if (osk.isOpen && button === 'options') {
     osk.done();
@@ -1024,10 +1132,9 @@ function setText(id: string, text: string): void {
 
 function step(): void {
   if (!session) return;
-  const input = keyboard.poll(SIM_STEP_MS);
   if (session.kind === 'solo' || session.kind === 'online') {
     const g = session.game;
-    g.step(SIM_STEP_MS, input);
+    g.step(SIM_STEP_MS, keyboard.poll(SIM_STEP_MS));
     const events = g.drainEvents();
     handleYourEvents(events);
     youFx.onEvents(events);
@@ -1040,20 +1147,17 @@ function step(): void {
     }
     if (g.isOver) (session.kind === 'solo' ? onSoloOver : onOnlineOver)(g);
   } else {
-    const { match, cpus } = session;
-    const inputs = [input, ...cpus.map((cpu, k) => cpu.poll(match.games[k + 1], SIM_STEP_MS))];
+    const { match, seats } = session;
+    const inputs = seats.map((s, k) => (s.kind === 'cpu' ? s.ai.poll(match.games[k], SIM_STEP_MS) : s.input.poll(SIM_STEP_MS)));
     const events = match.step(SIM_STEP_MS, inputs);
-    handleYourEvents(events[0]);
+    seats.forEach((s, k) => { if (s.kind === 'person') handleYourEvents(events[k], s.input, s.rumble); });
     youFx.onEvents(events[0]);
     events.slice(1).forEach((list, k) => opponents.fx(k).onEvents(list));
-    // Warn the moment garbage is sent your way, not just when it starts falling.
+    // Warn the moment garbage is sent to a person here, not just when it starts falling.
     for (const d of match.deliveries) {
-      if (d.to === 0) {
-        youFx.markIncoming();
-        audio.play('warning', 0, 0); rumble.warning();
-      } else {
-        opponents.fx(d.to - 1).markIncoming();
-      }
+      (d.to === 0 ? youFx : opponents.fx(d.to - 1)).markIncoming();
+      const s = seats[d.to];
+      if (s.kind === 'person') { audio.play('warning', 0, 0); s.rumble.warning(); }
     }
     if (match.state !== 'playing') onRoundOver(match);
   }
@@ -1160,4 +1264,6 @@ if (import.meta.env.DEV && params.has('cpu')) {
 if (import.meta.env.DEV && params.has('garbage')) {
   you()?.receiveGarbage(Array.from({ length: Number(params.get('garbage')) || 4 }, (_, i) => COLORS[i % 3]));
 }
+// For browser tests in development: look at the current session from the console.
+if (import.meta.env.DEV) (window as unknown as { __session: () => Session | null }).__session = () => session;
 requestAnimationFrame(frame);

@@ -6,7 +6,7 @@ export function $<T extends HTMLElement = HTMLElement>(selector: string): T {
   return el;
 }
 
-export type Mode = 'solo' | 'cpu' | 'online';
+export type Mode = 'solo' | 'cpu' | 'local' | 'online';
 
 export interface Settings {
   mode: Mode;
@@ -41,7 +41,7 @@ export function loadSettings(): Settings {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? 'null');
     if (raw && typeof raw === 'object') {
       return {
-        mode: raw.mode === 'cpu' || raw.mode === 'online' ? raw.mode : 'solo',
+        mode: ['cpu', 'local', 'online'].includes(raw.mode) ? raw.mode : 'solo',
         name: typeof raw.name === 'string' ? raw.name.slice(0, 16) : '',
         level: clampLevel(raw.level, DEFAULTS.level),
         speed: isSpeed(raw.speed) ? raw.speed : DEFAULTS.speed,

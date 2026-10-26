@@ -93,6 +93,11 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - **Hosting:** Cloudflare Workers + Durable Objects (via `partyserver`), frontend and relay in one `wrangler deploy`. Location hint: eastern North America.
 - **New seed every round** of best-of-3.
 
+## Local matches (same screen)
+- Menu → Local → setup screen (`src/ui/local.ts`): each person presses ✕ on their controller to join (or "Join with keyboard", one keyboard player at most), CPUs fill seats, everyone sets level/speed. 2–4 seats, at least one person. People sit first (P1 gets the main bottle), named P1–P4; CPUs named after the germs.
+- Plays as a `Match` like Vs CPU (same session kind, `local: true`): each person seat has its own `KeyboardInput`, fed only by their controller (`GamepadInput.route`); controllers that didn't join drive nothing. Any controller can pause and work the menus. Rumble goes to each player's own controller.
+- All bottles the same size. No two players on one keyboard, and no mixing local with online (decided).
+
 ## CPU players in online rooms
 - The host adds CPUs in the lobby (seats count toward the 4); each has its own skill, level and speed. CPUs are always ready, named after the germs.
 - The server never simulates: each round it gives every CPU to one of the people in the room, spreading them evenly (`assignCpus`, fewest first). That browser plays it in a Web Worker (`src/net/cpu-worker.ts`), so it keeps going in a background tab, and sends its board/garbage/result `as` the CPU (the server checks `runsCpu`). Garbage aimed at a CPU goes to its runner with `to`.

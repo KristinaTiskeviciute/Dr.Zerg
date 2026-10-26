@@ -89,6 +89,14 @@ body::after {
 #menu:not(.multi) .multi-only { display: none !important; }
 #menu:not(.online) .online-only { display: none !important; }
 #menu.online .not-online { display: none !important; }
+#menu:not(.local) .local-only { display: none !important; }
+#menu.local .not-local { display: none !important; }
+.menu-note { margin: 0; font-size: 9px; line-height: 1.8; color: var(--muted); }
+.local-title { font-size: 18px; font-weight: normal; color: var(--yellow); text-shadow: 3px 3px 0 var(--edge); }
+#play.local .not-local { display: none !important; }
+/* Local matches: P1's bottle gets a name label like the others */
+.stage .board-label { position: absolute; top: 100%; left: -12px; right: -12px; margin-top: 10px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#play:not(.local) .board-label { display: none; }
 
 input[type='text'] {
   font: inherit;
@@ -129,10 +137,10 @@ button:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
 .players .tag.host { background: var(--yellow); color: #2b1a00; }
 .players .tag.away { background: #6b2b2b; }
 .players .tag.cpu { background: #5a3d9a; }
-.players li.cpu-row { gap: 6px; }
+.players li.cpu-row, .players li.seat-row { gap: 6px; }
 .players li.cpu-row .who::after { content: ' · CPU'; color: var(--muted); font-size: 8px; }
 .players button.mini { font-size: 8px; padding: 6px 7px 5px; flex: none; }
-.players li.cpu-row .meta { min-width: 40px; text-align: center; }
+.players li.cpu-row .meta, .players li.seat-row .meta { min-width: 40px; text-align: center; }
 button.add-cpu { align-self: center; font-size: 9px; color: var(--yellow); }
 .panel-cols.two { grid-template-columns: 1fr 1fr; }
 .lobby-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

@@ -7,7 +7,8 @@ const KEY = 'drzerg.rumble';
 export class Rumble {
   on = true;
 
-  constructor(private readonly pad: GamepadInput) {
+  /** `index`: rumble that controller (default: the one used last). Players in a local match get their own. */
+  constructor(private readonly pad: GamepadInput, private readonly index?: number, private readonly parent?: Rumble) {
     try {
       this.on = localStorage.getItem(KEY) !== 'off';
     } catch { /* storage unavailable */ }
@@ -20,6 +21,11 @@ export class Rumble {
       localStorage.setItem(KEY, this.on ? 'on' : 'off');
     } catch { /* ignore */ }
     this.play(300, 0.7, 0.7);
+  }
+
+  /** A rumble for one controller that follows this one's on/off switch. */
+  forPad(index: number): Rumble {
+    return new Rumble(this.pad, index, this);
   }
 
   /** Your own board's events. */
@@ -42,6 +48,6 @@ export class Rumble {
   }
 
   private play(ms: number, strong: number, weak: number): void {
-    if (this.on) this.pad.rumble(ms, strong, weak);
+    if (this.parent ? this.parent.on : this.on) this.pad.rumble(ms, strong, weak, this.index);
   }
 }
