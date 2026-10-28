@@ -786,6 +786,10 @@ function updateCpuCountdown(s: Extract<Session, { kind: 'cpu' }>, now: number): 
  * bottles (full size against one opponent, smaller against two or three).
  */
 function sizeCanvases(): void {
+  // The page's layout size: unlike innerWidth/innerHeight, pinch-zooming on a phone doesn't change it.
+  const viewW = document.documentElement.clientWidth;
+  const viewH = document.documentElement.clientHeight;
+  sizedFor = `${viewW}x${viewH}`;
   const { width, height } = boardPixelSize(8, 16);
   const n = opponents.count;
   // Local matches: everyone's bottle is the same size.
@@ -802,8 +806,8 @@ function sizeCanvases(): void {
 
   // Phones: your bottle between the stats columns. Portrait puts the others in a row below,
   // landscape (a short screen) puts them to the right.
-  const portrait = window.innerWidth <= 520;
-  const landscape = !portrait && window.innerHeight <= 520;
+  const portrait = viewW <= 520;
+  const landscape = !portrait && viewH <= 520;
   const play = $('#play');
   play.classList.toggle('compact', portrait || landscape);
   play.classList.toggle('portrait', portrait);
@@ -811,7 +815,7 @@ function sizeCanvases(): void {
   const left = $('.hud-left').offsetWidth;
   const right = $('.hud-right').offsetWidth;
   if (portrait || landscape) {
-    const availW = window.innerWidth - chat.reservedWidth;
+    const availW = viewW - chat.reservedWidth;
     let yours: number;
     let theirs: number;
     if (portrait) {
@@ -820,13 +824,13 @@ function sizeCanvases(): void {
       yours = (availW - 32 - side - 6) / width; // a few px spare for rounding
       theirs = n ? Math.min(yours * (local ? 1 : oppScale), (availW - 32 - (n - 1) * 8 - 6) / (n * width)) : 0;
       // Both rows have to fit the height too (minus padding and the name labels).
-      const availH = window.innerHeight - 64 - 36 - (local ? 22 : 0) - (n ? 34 : 0);
+      const availH = viewH - 64 - 36 - (local ? 22 : 0) - (n ? 34 : 0);
       const shrink = availH / (yours * height + theirs * height);
       if (shrink < 1) { yours *= shrink; theirs *= shrink; }
     } else {
       // One row, as tall as the screen allows (minus padding and the name labels below).
       // The others use whatever width is left, up to the size of yours.
-      yours = (window.innerHeight - 52 - 12 - 30) / height;
+      yours = (viewH - 52 - 12 - 30) / height;
       const room = availW - 24 - left - right - 12 * 3 - Math.max(0, n - 1) * 10 - 6;
       theirs = n ? Math.min(yours, (room - yours * width) / (n * width)) : 0;
       if (n && theirs < yours * oppScale) {
@@ -843,9 +847,9 @@ function sizeCanvases(): void {
     return setSizes(yours, Math.max(0.3, theirs));
   }
 
-  const availW = window.innerWidth - 260 - n * 32 - chat.reservedWidth;
+  const availW = viewW - 260 - n * 32 - chat.reservedWidth;
   // Leave room for the page padding, and in versus for the opponents' names under their bottles.
-  const availH = window.innerHeight - 56 - (n ? 32 : 0);
+  const availH = viewH - 56 - (n ? 32 : 0);
   // The canvases stay at sprite resolution; CSS scales them up with crisp (pixelated) edges.
   // Whole-number scales keep every pixel the same size, so prefer one when it's close.
   const fit = Math.max(1, Math.min(availW / (width * (1 + n * oppScale)), availH / height));
@@ -853,6 +857,8 @@ function sizeCanvases(): void {
   setSizes(scale, scale * oppScale);
 }
 window.addEventListener('resize', () => { if (session) sizeCanvases(); });
+/** The page size the boards were last sized for. Phones don't always send a resize event (e.g. while a page is still settling), so frame() checks this too. */
+let sizedFor = '';
 
 // --- Events and results ---
 
@@ -1250,6 +1256,7 @@ function frame(now: number): void {
   lastTime = now;
   pad.poll();
   if (session) updateMusicRate();
+  if (session && sizedFor !== `${document.documentElement.clientWidth}x${document.documentElement.clientHeight}`) sizeCanvases();
 
   if (session?.kind === 'online') updateOnline(session, now);
   if (session?.kind === 'cpu') updateCpuCountdown(session, now);
