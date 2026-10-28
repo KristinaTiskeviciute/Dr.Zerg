@@ -419,10 +419,12 @@ canvas { display: block; image-rendering: pixelated; }
 #play.compact .hud strong { font-size: 18px; }
 #play.compact .hud .germ-counts { flex-direction: column; flex-wrap: nowrap; gap: 8px; }
 #play.compact .hud-rounds .who-name { max-width: 64px; font-size: 8px; }
-#play.compact .pips-row { gap: 6px; }
 #play.compact .pips { gap: 3px; }
 #play.compact .pip { width: 11px; height: 11px; }
-#play.compact .fast-flag { font-size: 7px; max-width: 90px; }
+/* Narrow left column: names under the stars, and the flags without ": ON" (they only show when on), wrapping. */
+#play.compact .pips-row { flex-direction: column !important; align-items: flex-start; gap: 3px; }
+#play.compact .fast-flag { font-size: 7px; max-width: 60px; }
+#play.compact .fast-flag .flag-on { display: none; }
 
 /* Portrait: equal side columns, so your bottle is in the middle of the screen. */
 #play.portrait {
@@ -431,6 +433,10 @@ canvas { display: block; image-rendering: pixelated; }
   align-items: center; gap: 12px 10px; padding-top: 64px;
 }
 #play.portrait .opponents { justify-self: center; }
+/* The stats columns sit against the screen edges (your bottle stays centred between them). */
+#play.portrait .hud-left { justify-self: start; }
+#play.portrait .hud-right { justify-self: end; align-items: flex-end; text-align: right; }
+#play.portrait .hud-right .germ-counts > div { align-items: flex-end; }
 #play.portrait.local .stage { margin-bottom: 22px; } /* room for your bottle's name label */
 
 /* Landscape phones: everything in one row, sized to the screen height. */
@@ -441,7 +447,7 @@ canvas { display: block; image-rendering: pixelated; }
 #play.landscape .opponents { align-self: start; gap: 10px; }
 
 /* Touch buttons on: portrait puts the other bottles on top, your bottle below them, buttons at the bottom. */
-#play.portrait.buttons { grid-template-areas: 'opps opps opps' 'left stage right'; padding-bottom: var(--pad-h, 0px); }
+#play.portrait.buttons { grid-template-areas: 'opps opps opps' 'left stage right'; padding-top: 52px; padding-bottom: var(--pad-h, 0px); }
 #play.portrait.buttons .opponents { margin-bottom: 28px; }
 #play.landscape.buttons { padding-left: var(--pad-w, 0px); padding-right: var(--pad-w, 0px); }
 #play.buttons:not(.compact) { padding-bottom: var(--pad-h, 0px); }

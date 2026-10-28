@@ -909,7 +909,8 @@ function sizeCanvases(): void {
   play.classList.toggle('landscape', landscape);
   play.classList.toggle('buttons', pad);
   touchPad.classList.toggle('sides', landscape);
-  const padH = pad && !landscape ? touchPad.querySelector<HTMLElement>('.cluster')!.offsetHeight + 28 : 0;
+  // The whole panel's height, including its padding for the iPhone home bar (safe area), plus a little gap.
+  const padH = pad && !landscape ? touchPad.offsetHeight + 8 : 0;
   const padW = pad && landscape ? touchPad.querySelector<HTMLElement>('.cluster')!.offsetWidth + 24 : 0;
   play.style.setProperty('--pad-h', `${padH}px`);
   play.style.setProperty('--pad-w', `${padW}px`);
@@ -925,7 +926,7 @@ function sizeCanvases(): void {
       yours = (availW - 32 - side - 6) / width; // a few px spare for rounding
       theirs = n ? Math.min(yours * (local ? 1 : oppScale), (availW - 32 - (n - 1) * 8 - 6) / (n * width)) : 0;
       // Both rows have to fit the height too (minus padding and the name labels).
-      const availH = viewH - 64 - 36 - (local ? 22 : 0) - (n ? 34 : 0) - padH;
+      const availH = viewH - (pad ? 52 : 64) - 36 - (local ? 22 : 0) - (n ? 34 : 0) - padH;
       const shrink = availH / (yours * height + theirs * height);
       if (shrink < 1) { yours *= shrink; theirs *= shrink; }
     } else {
@@ -960,8 +961,9 @@ function sizeCanvases(): void {
 window.addEventListener('resize', () => { if (session) sizeCanvases(); });
 /** The page size the boards were last sized for. Phones don't always send a resize event (e.g. while a page is still settling), so frame() checks this too. */
 let sizedFor = '';
-/** What the board sizes depend on besides the opponents: the page size and whether the touch buttons are showing. */
-const sizeKey = () => `${document.documentElement.clientWidth}x${document.documentElement.clientHeight}:${settings.touch === 'buttons' && session !== null}`;
+/** What the board sizes depend on besides the opponents: the page size and the touch buttons' room (if showing). */
+const sizeKey = () => `${document.documentElement.clientWidth}x${document.documentElement.clientHeight}:${
+  settings.touch === 'buttons' && session !== null ? touchPad.offsetHeight : 'no buttons'}`;
 
 // --- Events and results ---
 
