@@ -948,13 +948,13 @@ function sizeCanvases(): void {
     // Safety check (portrait with buttons): browsers don't all agree on how much of the screen is
     // visible, so measure where things ended up and shrink until your bottle clears the buttons.
     if (pad && portrait) {
-      for (let tries = 0; tries < 4; tries++) {
+      for (let tries = 0; tries < 10; tries++) {
         const buttonsTop = Math.min(...[...touchPad.querySelectorAll<HTMLElement>('.cluster')].map(c => c.getBoundingClientRect().top));
         const over = canvas.getBoundingClientRect().bottom + 10 - buttonsTop;
         if (over <= 0) break;
-        // Shrinking both rows by k frees about (1 - k) of their height; the page is centred, so
-        // the bottle's bottom moves up by about half of that.
-        const k = Math.max(0.5, 1 - (2 * over) / (yours * height + theirs * height));
+        // Shrink both rows by about the overlap and measure again. The bottle's bottom moves up by
+        // somewhere between half (page centred) and all of that, so this never overshoots.
+        const k = Math.max(0.7, 1 - over / (yours * height + theirs * height));
         yours *= k;
         theirs *= k;
         play.style.setProperty('--shoulder', `${Math.round(BOTTLE_SHOULDER_PX * yours)}px`);
