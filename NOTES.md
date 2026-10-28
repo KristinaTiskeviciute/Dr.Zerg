@@ -94,8 +94,9 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - **New seed every round** of best-of-3.
 
 ## Touch controls (opt-in)
-- 👆 switch in the top bar, shown on touchscreens only, off by default and remembered: being on a phone doesn't mean someone wants touch controls (decided).
-- Gestures (`src/input/touch.ts`, rules in `Gesture`, tested): drag sideways = one column per ~0.9 cell of finger travel, and keeps pushing that way (slides into gaps); tap = rotate (left half ↺, right half ↻); drag down and hold = soft drop. Taps on buttons/menus/chat are never gestures. Drives the keyboard player through `KeyboardInput.nudge` / `setTouchHold` (no key auto-repeat).
+- Switch in the top bar, shown on touchscreens only, cycles off → buttons → swipe; off by default and remembered: being on a phone doesn't mean someone wants touch controls (decided). Buttons are the main style (swipes didn't feel right to Kris); swipes stay as an option.
+- Buttons (`#touch-pad`): ◀ ▼ ▶ bottom-left, ↺ ↻ bottom-right, held like keys through `KeyboardInput.press/release` (◀ ▶ auto-repeat, ▼ held drops, several fingers at once). Portrait phones with buttons: the other bottles go on top, yours below them, buttons at the bottom; landscape phones: the clusters sit at the left and right edges. Board sizes leave room for them (`--pad-h` / `--pad-w`).
+- Swipe (`src/input/touch.ts`, rules in `Gesture`, tested): drag sideways = one column per 1.1 cells of finger travel (first 1.3), keeps pushing into gaps; tap = rotate (left half ↺, right half ↻); drag down and hold = soft drop; sideways drift while dropping is ignored. Taps on buttons/menus/chat are never gestures.
 - While on in a game: ⏸ button in the top bar, and the page doesn't scroll/zoom/select under your finger. Narrow screens show the top bar as icons.
 
 ## Local matches (same screen)

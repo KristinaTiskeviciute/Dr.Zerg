@@ -20,7 +20,7 @@ export function focusables(root: ParentNode = document): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>(CONTROLS)].filter(el =>
     !(el as HTMLButtonElement | HTMLInputElement).disabled
     && el.getClientRects().length > 0
-    && !el.closest('.chat-form'));
+    && !el.closest('.chat-form, .touch-pad'));
 }
 
 /** Focus the nearest control in that direction from the focused one. False if there's none. */

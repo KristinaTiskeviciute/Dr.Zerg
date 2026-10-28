@@ -13,7 +13,7 @@
   <body>
     <div class="audio-toggles">
       <button type="button" id="touch-pause" class="hidden" title="Pause"><span class="ico">⏸</span></button>
-      <button type="button" id="toggle-touch" class="hidden" title="Touch controls on/off (drag to move, tap to rotate)"></button>
+      <button type="button" id="toggle-touch" class="hidden" title="Touch controls: off, buttons or swipe"></button>
       <button type="button" id="toggle-rumble" class="hidden" title="Controller rumble on/off"></button>
       <button type="button" id="toggle-music" title="Music on/off"></button>
       <button type="button" id="toggle-mute" title="Mute all sound (M)"></button>
@@ -24,6 +24,19 @@
         <label>Voice <input type="range" min="0" max="100" data-volume="voice" /><output></output></label>
       </div>
     </div>
+    <!-- Touch buttons (when touch controls are set to buttons): move and drop on the left, rotate on the right. -->
+    <div class="touch-pad hidden" id="touch-pad">
+      <div class="cluster move">
+        <button type="button" class="tbtn" data-action="left" tabindex="-1" aria-label="Move left">◀</button>
+        <button type="button" class="tbtn" data-action="softDrop" tabindex="-1" aria-label="Drop">▼</button>
+        <button type="button" class="tbtn" data-action="right" tabindex="-1" aria-label="Move right">▶</button>
+      </div>
+      <div class="cluster turn">
+        <button type="button" class="tbtn ccw" data-action="rotateCCW" tabindex="-1" aria-label="Rotate counter-clockwise">↺</button>
+        <button type="button" class="tbtn cw" data-action="rotateCW" tabindex="-1" aria-label="Rotate clockwise">↻</button>
+      </div>
+    </div>
+    <div class="toast hidden" id="toast"></div>
     <main id="app">
       <section id="menu" class="screen">
         <canvas id="mascots" aria-hidden="true"></canvas>
@@ -124,7 +137,7 @@
           Menus: <kbd>D-pad</kbd> move · <kbd>✕</kbd> select · <kbd>◯</kbd> back
         </p>
         <p class="controls hidden" id="touch-hint">
-          👆 Touch: drag sideways to move · tap to rotate (left side ↺, right side ↻) · drag down and hold to drop · <kbd>⏸</kbd> pause
+          <span id="touch-hint-text"></span>
         </p>
       </section>
 

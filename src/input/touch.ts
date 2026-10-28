@@ -98,7 +98,7 @@ export class Gesture {
 }
 
 /** Touches on these are normal taps (buttons, menus, chat), never gestures. */
-const UI = 'button, input, a, label, .chat-dock, .audio-toggles, .osk, .volume-panel';
+const UI = 'button, input, a, label, .chat-dock, .audio-toggles, .osk, .volume-panel, .touch-pad';
 
 /**
  * Screen touches → Gesture, while `active()` (touch controls on and a round running).

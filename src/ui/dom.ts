@@ -7,6 +7,8 @@ export function $<T extends HTMLElement = HTMLElement>(selector: string): T {
 }
 
 export type Mode = 'solo' | 'cpu' | 'local' | 'online';
+/** Touch controls: on-screen buttons, swipe gestures, or none (the default, even on phones). */
+export type TouchMode = 'off' | 'buttons' | 'swipe';
 
 export interface Settings {
   mode: Mode;
@@ -21,8 +23,8 @@ export interface Settings {
   fastGarbage: boolean;
   /** Outbreak mode in Vs CPU with 2–3 CPUs. */
   outbreak: boolean;
-  /** Touch controls (drag, tap): opt-in, even on phones. */
-  touch: boolean;
+  /** Touch controls: opt-in, even on phones. */
+  touch: TouchMode;
 }
 
 export const SPEED_LABEL: Record<Speed, string> = { low: 'Low', med: 'Med', high: 'Hi' };
@@ -30,7 +32,7 @@ export const SKILL_LABEL: Record<CpuSkillName, string> = { easy: 'Easy', normal:
 
 const KEY = 'drzerg.settings';
 const DEFAULTS: Settings = {
-  mode: 'solo', name: '', level: 5, speed: 'med', cpuSkill: 'normal', cpuLevel: 5, cpuSpeed: 'med', cpuCount: 1, fastGarbage: false, outbreak: false, touch: false,
+  mode: 'solo', name: '', level: 5, speed: 'med', cpuSkill: 'normal', cpuLevel: 5, cpuSpeed: 'med', cpuCount: 1, fastGarbage: false, outbreak: false, touch: 'off',
 };
 
 const clampLevel = (n: unknown, fallback: number) =>
@@ -53,7 +55,8 @@ export function loadSettings(): Settings {
         cpuCount: [1, 2, 3].includes(raw.cpuCount) ? raw.cpuCount : DEFAULTS.cpuCount,
         fastGarbage: raw.fastGarbage === true,
         outbreak: raw.outbreak === true,
-        touch: raw.touch === true,
+        // (Touch used to be on/off; "on" meant swipes, but buttons are the main touch style now.)
+        touch: raw.touch === 'buttons' || raw.touch === 'swipe' ? raw.touch : raw.touch === true ? 'buttons' : 'off',
       };
     }
   } catch { /* ignore */ }

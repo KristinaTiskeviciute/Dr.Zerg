@@ -440,6 +440,41 @@ canvas { display: block; image-rendering: pixelated; }
 }
 #play.landscape .opponents { align-self: start; gap: 10px; }
 
+/* Touch buttons on: portrait puts the other bottles on top, your bottle below them, buttons at the bottom. */
+#play.portrait.buttons { grid-template-areas: 'opps opps opps' 'left stage right'; padding-bottom: var(--pad-h, 0px); }
+#play.portrait.buttons .opponents { margin-bottom: 28px; }
+#play.landscape.buttons { padding-left: var(--pad-w, 0px); padding-right: var(--pad-w, 0px); }
+#play.buttons:not(.compact) { padding-bottom: var(--pad-h, 0px); }
+
+.touch-pad {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 15;
+  display: flex; justify-content: space-between; align-items: flex-end;
+  padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
+  pointer-events: none;
+}
+.touch-pad .cluster { display: flex; gap: 10px; pointer-events: auto; }
+.tbtn {
+  width: 62px; height: 62px; padding: 0; font-size: 22px; line-height: 1;
+  touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+.tbtn.ccw { background: var(--blue-dark); }
+.tbtn.cw { background: var(--red); margin-bottom: 18px; } /* raised, like a controller's face buttons */
+.tbtn.down { transform: translateY(2px); filter: brightness(1.35); }
+/* Landscape phones: the clusters sit at the left and right edges; moves as a cross (◀ ▶ over ▼). */
+.touch-pad.sides { top: 0; align-items: center; padding: 52px 12px 12px; }
+.touch-pad.sides .move { display: grid; grid-template-columns: 62px 62px; grid-template-areas: 'l r' 'd d'; gap: 10px; }
+.touch-pad.sides .move [data-action='left'] { grid-area: l; }
+.touch-pad.sides .move [data-action='right'] { grid-area: r; }
+.touch-pad.sides .move [data-action='softDrop'] { grid-area: d; width: 100%; }
+.touch-pad.sides .turn { flex-direction: column-reverse; align-items: center; }
+.touch-pad.sides .tbtn.cw { margin-bottom: 0; margin-left: 18px; }
+
+.toast {
+  position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 40;
+  padding: 10px 14px; font-size: 10px; background: var(--panel); box-shadow: 0 0 0 3px var(--edge-light), 0 0 0 6px var(--edge);
+  pointer-events: none;
+}
+
 /* Narrow menus: the four mode buttons fit the panel. */
 @media (max-width: 520px) {
   .seg-mode { gap: 6px; }

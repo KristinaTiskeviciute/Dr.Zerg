@@ -10,7 +10,7 @@ import { randomSeed } from './core/rng';
 import { garbageTargets } from './core/targeting';
 import { Color, COLORS } from './core/types';
 import { GamepadInput, NavDir } from './input/gamepad';
-import { KeyboardInput } from './input/keyboard';
+import { Action, KeyboardInput } from './input/keyboard';
 import { LocalSeat, LocalSetup, CPU_NAMES, deviceLabel, seatNames } from './ui/local';
 import { Rumble } from './input/rumble';
 import { TouchControls } from './input/touch';
@@ -319,21 +319,59 @@ document.addEventListener('pointerdown', e => {
 audio.onChange(renderVolumes);
 
 // --- Touch controls: opt-in (a switch in the top bar on touchscreens), never assumed ---
+// Off → on-screen buttons → swipe gestures → off.
 
 const touchButton = $<HTMLButtonElement>('#toggle-touch');
 const touchPause = $<HTMLButtonElement>('#touch-pause');
+const touchPad = $('#touch-pad');
+const TOUCH_NEXT = { off: 'buttons', buttons: 'swipe', swipe: 'off' } as const;
+const TOUCH_LABEL = { off: 'Touch: off', buttons: 'Touch: buttons', swipe: 'Touch: swipe' } as const;
 function renderTouchUi(): void {
   touchButton.classList.toggle('hidden', navigator.maxTouchPoints === 0);
-  setLabel(touchButton, '👆', 'Touch');
-  touchButton.classList.toggle('off', !settings.touch);
-  $('#touch-hint').classList.toggle('hidden', !settings.touch);
+  setLabel(touchButton, settings.touch === 'buttons' ? '🔘' : '👆', TOUCH_LABEL[settings.touch]);
+  touchButton.classList.toggle('off', settings.touch === 'off');
+  $('#touch-hint').classList.toggle('hidden', settings.touch === 'off');
+  $('#touch-hint-text').textContent = settings.touch === 'buttons'
+    ? '🔘 Touch buttons: ◀ ▶ move (hold to repeat) · ▼ drop (hold) · ↺ ↻ rotate · ⏸ pause'
+    : '👆 Touch: drag sideways to move · tap to rotate (left side ↺, right side ↻) · drag down and hold to drop · ⏸ pause';
 }
 touchButton.addEventListener('click', () => {
-  settings.touch = !settings.touch;
+  settings.touch = TOUCH_NEXT[settings.touch];
   saveSettings(settings);
   renderTouchUi();
+  showToast(TOUCH_LABEL[settings.touch]);
   blurUnlessPad(touchButton);
 });
+
+/** A short message at the top of the screen. */
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
+function showToast(text: string): void {
+  const el = $('#toast');
+  el.textContent = text;
+  el.classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.add('hidden'), 1500);
+}
+
+// Touch buttons: held like keys (◀ ▶ repeat after a moment, ▼ drops while held), several at once.
+for (const b of touchPad.querySelectorAll<HTMLButtonElement>('.tbtn')) {
+  const action = b.dataset.action as Action;
+  b.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    b.setPointerCapture(e.pointerId);
+    b.classList.add('down');
+    keyboard.press(action);
+  });
+  const up = () => {
+    if (!b.classList.contains('down')) return;
+    b.classList.remove('down');
+    keyboard.release(action);
+  };
+  b.addEventListener('pointerup', up);
+  b.addEventListener('pointercancel', up);
+  b.addEventListener('lostpointercapture', up);
+  b.addEventListener('contextmenu', e => e.preventDefault());
+}
 touchPause.addEventListener('click', () => { togglePause(); touchPause.blur(); });
 renderTouchUi();
 // Gestures drive the keyboard player (in a local match: whoever joined with the keyboard).
@@ -346,17 +384,19 @@ new TouchControls({
     keyboard.press(action);
     keyboard.release(action);
   },
-}, () => (canvas.clientWidth / canvas.width) * CELL_PX || 24, () => settings.touch && running());
+}, () => (canvas.clientWidth / canvas.width) * CELL_PX || 24, () => settings.touch === 'swipe' && running());
 
-/** Every frame: the pause button and "no scrolling" only while touch controls are on in a game. */
+/** Every frame: the pause button, the touch buttons and "no scrolling" only while touch controls are on in a game. */
 function updateTouchUi(): void {
-  const on = settings.touch && session !== null;
+  const on = settings.touch !== 'off' && session !== null;
   if (touchPause.classList.contains('hidden') === on) touchPause.classList.toggle('hidden', !on);
+  const pad = settings.touch === 'buttons' && session !== null;
+  if (touchPad.classList.contains('hidden') === pad) touchPad.classList.toggle('hidden', !pad);
   document.body.classList.toggle('touch-play', on);
 }
 
-/** A reminder of the gestures on the countdown (touch controls on). */
-const touchTip = () => (settings.touch ? ' · drag to move, tap to rotate' : '');
+/** A reminder of the gestures on the countdown (swipe controls on). */
+const touchTip = () => (settings.touch === 'swipe' ? ' · drag to move, tap to rotate' : '');
 
 // --- Menu ---
 
@@ -841,8 +881,11 @@ function sizeCanvases(): void {
   // The page's layout size: unlike innerWidth/innerHeight, pinch-zooming on a phone doesn't change it.
   const viewW = document.documentElement.clientWidth;
   const viewH = document.documentElement.clientHeight;
-  sizedFor = `${viewW}x${viewH}`;
+  sizedFor = sizeKey();
   const { width, height } = boardPixelSize(8, 16);
+  // Room for the touch buttons: along the bottom, or (landscape phones) down the sides.
+  const pad = settings.touch === 'buttons' && session !== null;
+  updateTouchUi(); // show or hide them first, so they can be measured
   const n = opponents.count;
   // Local matches: everyone's bottle is the same size.
   const local = session?.kind === 'cpu' && session.local;
@@ -864,10 +907,16 @@ function sizeCanvases(): void {
   play.classList.toggle('compact', portrait || landscape);
   play.classList.toggle('portrait', portrait);
   play.classList.toggle('landscape', landscape);
+  play.classList.toggle('buttons', pad);
+  touchPad.classList.toggle('sides', landscape);
+  const padH = pad && !landscape ? touchPad.querySelector<HTMLElement>('.cluster')!.offsetHeight + 28 : 0;
+  const padW = pad && landscape ? touchPad.querySelector<HTMLElement>('.cluster')!.offsetWidth + 24 : 0;
+  play.style.setProperty('--pad-h', `${padH}px`);
+  play.style.setProperty('--pad-w', `${padW}px`);
   const left = $('.hud-left').offsetWidth;
   const right = $('.hud-right').offsetWidth;
   if (portrait || landscape) {
-    const availW = viewW - chat.reservedWidth;
+    const availW = viewW - chat.reservedWidth - 2 * padW;
     let yours: number;
     let theirs: number;
     if (portrait) {
@@ -876,7 +925,7 @@ function sizeCanvases(): void {
       yours = (availW - 32 - side - 6) / width; // a few px spare for rounding
       theirs = n ? Math.min(yours * (local ? 1 : oppScale), (availW - 32 - (n - 1) * 8 - 6) / (n * width)) : 0;
       // Both rows have to fit the height too (minus padding and the name labels).
-      const availH = viewH - 64 - 36 - (local ? 22 : 0) - (n ? 34 : 0);
+      const availH = viewH - 64 - 36 - (local ? 22 : 0) - (n ? 34 : 0) - padH;
       const shrink = availH / (yours * height + theirs * height);
       if (shrink < 1) { yours *= shrink; theirs *= shrink; }
     } else {
@@ -901,7 +950,7 @@ function sizeCanvases(): void {
 
   const availW = viewW - 260 - n * 32 - chat.reservedWidth;
   // Leave room for the page padding, and in versus for the opponents' names under their bottles.
-  const availH = viewH - 56 - (n ? 32 : 0);
+  const availH = viewH - 56 - (n ? 32 : 0) - padH;
   // The canvases stay at sprite resolution; CSS scales them up with crisp (pixelated) edges.
   // Whole-number scales keep every pixel the same size, so prefer one when it's close.
   const fit = Math.max(1, Math.min(availW / (width * (1 + n * oppScale)), availH / height));
@@ -911,6 +960,8 @@ function sizeCanvases(): void {
 window.addEventListener('resize', () => { if (session) sizeCanvases(); });
 /** The page size the boards were last sized for. Phones don't always send a resize event (e.g. while a page is still settling), so frame() checks this too. */
 let sizedFor = '';
+/** What the board sizes depend on besides the opponents: the page size and whether the touch buttons are showing. */
+const sizeKey = () => `${document.documentElement.clientWidth}x${document.documentElement.clientHeight}:${settings.touch === 'buttons' && session !== null}`;
 
 // --- Events and results ---
 
@@ -1063,7 +1114,7 @@ function togglePause(): void {
   paused = !paused;
   audio.setMusicPaused(paused);
   resetInputs();
-  if (paused) showOverlay('Paused', settings.touch ? 'Tap Resume to keep playing' : 'Press P to resume', [['Resume', togglePause], ['Quit to menu', showMenu]]);
+  if (paused) showOverlay('Paused', settings.touch !== 'off' ? 'Tap Resume to keep playing' : 'Press P to resume', [['Resume', togglePause], ['Quit to menu', showMenu]]);
   else hideOverlay();
 }
 
@@ -1308,7 +1359,7 @@ function frame(now: number): void {
   lastTime = now;
   pad.poll();
   if (session) updateMusicRate();
-  if (session && sizedFor !== `${document.documentElement.clientWidth}x${document.documentElement.clientHeight}`) sizeCanvases();
+  if (session && sizedFor !== sizeKey()) sizeCanvases();
 
   if (session?.kind === 'online') updateOnline(session, now);
   if (session?.kind === 'cpu') updateCpuCountdown(session, now);
