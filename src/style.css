@@ -228,6 +228,7 @@ canvas { display: block; image-rendering: pixelated; }
 
 .hud { display: flex; flex-direction: column; gap: 22px; min-width: 130px; }
 .hud div { display: flex; flex-direction: column; gap: 8px; }
+.hud .hud-col { gap: 22px; }
 .hud strong { font-size: 22px; font-weight: normal; text-shadow: 3px 3px 0 var(--edge); }
 #hud-germs { color: var(--yellow); }
 /* Speed-up: the Speed label blinks yellow for a moment */
@@ -390,10 +391,29 @@ canvas { display: block; image-rendering: pixelated; }
   #menu.cpu .panel-cols { grid-template-columns: 1fr; }
 }
 
+/* Phones: stars left of your bottle, germ counts right of it, the other bottles in a tight row below. */
 @media (max-width: 520px) {
-  #play { flex-direction: column; gap: 14px; }
-  .hud { flex-direction: row; flex-wrap: wrap; justify-content: center; }
+  #play {
+    display: grid; grid-template-columns: auto auto auto; grid-template-areas: 'left stage right' 'opps opps opps';
+    justify-content: center; align-items: center; gap: 12px 10px; padding-top: 64px;
+  }
+  #play .stage { grid-area: stage; }
+  #play .hud { display: contents; }
+  /* Sized to their content (not stretched by a wide row below), since the bottle size is worked out from their widths. */
+  #play .hud-left { grid-area: left; gap: 14px; justify-self: end; align-self: start; margin-top: var(--shoulder, 0px); }
+  #play .hud-right { grid-area: right; gap: 14px; justify-self: start; align-self: start; margin-top: var(--shoulder, 0px); }
+  #play .opponents { grid-area: opps; justify-self: center; gap: 8px; margin-bottom: 24px; }
+  #play.local .stage { margin-bottom: 22px; } /* room for your bottle's name label */
+  /* Name labels stay within their own bottle's width (no running into each other or off the screen). */
+  .opponent .label, .stage .board-label { left: 0; right: 0; font-size: 7px; }
   .hud .controls { display: none; }
+  .hud strong { font-size: 18px; }
+  .hud .germ-counts { flex-direction: column; flex-wrap: nowrap; gap: 8px; }
+  .hud-rounds .who-name { max-width: 64px; font-size: 8px; }
+  .pips-row { gap: 6px; }
+  .pips { gap: 3px; }
+  .pip { width: 11px; height: 11px; }
+  .fast-flag { font-size: 7px; }
 }
 
 /* Controller: the selected control is always marked */

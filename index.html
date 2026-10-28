@@ -224,21 +224,26 @@
           </div>
         </div>
         <aside class="hud">
-          <div class="match-only">
-            <span class="label">Rounds</span>
-            <div id="hud-rounds" class="hud-rounds"></div>
+          <!-- Two columns: stacked beside the bottles on wide screens, on either side of your bottle on phones. -->
+          <div class="hud-col hud-left">
+            <div class="not-local"><span class="label">Level</span><strong id="hud-level">0</strong></div>
+            <div class="not-local"><span class="label">Speed</span><strong id="hud-speed">Med</strong></div>
+            <div class="match-only">
+              <span class="label">Rounds</span>
+              <div id="hud-rounds" class="hud-rounds"></div>
+            </div>
+            <div class="match-only fast-flag" id="hud-fast">Fast garbage: ON</div>
+            <div class="match-only fast-flag hidden" id="hud-outbreak">Outbreak: ON</div>
           </div>
-          <div class="not-local"><span class="label">Level</span><strong id="hud-level">0</strong></div>
-          <div class="not-local"><span class="label">Speed</span><strong id="hud-speed">Med</strong></div>
-          <div>
-            <span class="label">Germs</span>
-            <div class="germ-counts" id="hud-germ-list"></div>
+          <div class="hud-col hud-right">
+            <div>
+              <span class="label">Germs</span>
+              <div class="germ-counts" id="hud-germ-list"></div>
+            </div>
+            <p class="controls small">
+              <kbd>←</kbd><kbd>→</kbd> move<br /><kbd>↑</kbd><kbd>X</kbd> rotate ↻<br /><kbd>Z</kbd> rotate ↺<br /><kbd>↓</kbd> drop<br /><kbd>P</kbd> pause
+            </p>
           </div>
-          <div class="match-only fast-flag" id="hud-fast">Fast garbage: ON</div>
-          <div class="match-only fast-flag hidden" id="hud-outbreak">Outbreak: ON</div>
-          <p class="controls small">
-            <kbd>←</kbd><kbd>→</kbd> move<br /><kbd>↑</kbd><kbd>X</kbd> rotate ↻<br /><kbd>Z</kbd> rotate ↺<br /><kbd>↓</kbd> drop<br /><kbd>P</kbd> pause
-          </p>
         </aside>
         <div class="opponents match-only" id="opponents"></div>
       </section>

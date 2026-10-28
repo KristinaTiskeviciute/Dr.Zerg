@@ -27,6 +27,8 @@ export interface BoardView {
 
 const FRAME = 4;
 const NECK_ROWS = 1; // one row: room to rotate at the top, and keeps the preview close to the spawn
+/** How far down a board's canvas the bottle's shoulders are (above them: the preview and the neck), in sprite pixels. */
+export const BOTTLE_SHOULDER_PX = (NECK_ROWS + 1) * CELL_PX;
 
 /** Pixel size of the full drawing (bottle + neck + preview) for a board. */
 export function boardPixelSize(cols: number, rows: number): { width: number; height: number } {

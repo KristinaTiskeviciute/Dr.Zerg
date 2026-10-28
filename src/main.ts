@@ -13,7 +13,7 @@ import { GamepadInput, NavDir } from './input/gamepad';
 import { KeyboardInput } from './input/keyboard';
 import { LocalSeat, LocalSetup, CPU_NAMES, deviceLabel, seatNames } from './ui/local';
 import { Rumble } from './input/rumble';
-import { boardPixelSize, drawBoard, drawGerm } from './render/draw';
+import { BOTTLE_SHOULDER_PX, boardPixelSize, drawBoard, drawGerm } from './render/draw';
 import { BoardEffects } from './render/effects';
 import { gameView } from './render/view';
 import {
@@ -791,20 +791,39 @@ function sizeCanvases(): void {
   // Local matches: everyone's bottle is the same size.
   const local = session?.kind === 'cpu' && session.local;
   const oppScale = n <= 1 || local ? OPPONENT_BOARD_SCALE : n === 2 ? 0.6 : 0.5;
-  const narrow = window.innerWidth <= 520;
-  const availW = window.innerWidth - (narrow ? 32 : 260) - n * 32 - chat.reservedWidth;
+  const setSizes = (yours: number, theirs: number) => {
+    canvas.width = width;
+    canvas.height = height;
+    canvas.style.width = `${Math.round(width * yours)}px`;
+    canvas.style.height = `${Math.round(height * yours)}px`;
+    ctx.imageSmoothingEnabled = false;
+    opponents.size(theirs);
+  };
+
+  if (window.innerWidth <= 520) {
+    // Phones: your bottle between the stars and the germ counts, the others in a row below it.
+    const side = Math.min(240, $('.hud-left').offsetWidth + $('.hud-right').offsetWidth + 20);
+    const availW = window.innerWidth - 32 - chat.reservedWidth;
+    let yours = (availW - side - 6) / width; // a few px spare for rounding
+    let theirs = n ? Math.min(yours * (local ? 1 : oppScale), (availW - (n - 1) * 8 - 6) / (n * width)) : 0;
+    // Both rows have to fit the height too (minus padding and the name labels).
+    const availH = window.innerHeight - 64 - 36 - (local ? 22 : 0) - (n ? 34 : 0);
+    const shrink = availH / (yours * height + theirs * height);
+    if (shrink < 1) { yours *= shrink; theirs *= shrink; }
+    yours = Math.max(0.5, yours);
+    // The side columns start level with your bottle's shoulders, not the preview above them.
+    $('#play').style.setProperty('--shoulder', `${Math.round(BOTTLE_SHOULDER_PX * yours)}px`);
+    return setSizes(yours, Math.max(0.3, theirs));
+  }
+
+  const availW = window.innerWidth - 260 - n * 32 - chat.reservedWidth;
   // Leave room for the page padding, and in versus for the opponents' names under their bottles.
-  const availH = window.innerHeight - (narrow ? 120 : 56) - (n ? 32 : 0);
+  const availH = window.innerHeight - 56 - (n ? 32 : 0);
   // The canvases stay at sprite resolution; CSS scales them up with crisp (pixelated) edges.
   // Whole-number scales keep every pixel the same size, so prefer one when it's close.
   const fit = Math.max(1, Math.min(availW / (width * (1 + n * oppScale)), availH / height));
   const scale = fit - Math.floor(fit) < 0.35 ? Math.floor(fit) : fit;
-  canvas.width = width;
-  canvas.height = height;
-  canvas.style.width = `${Math.round(width * scale)}px`;
-  canvas.style.height = `${Math.round(height * scale)}px`;
-  ctx.imageSmoothingEnabled = false;
-  opponents.size(scale * oppScale);
+  setSizes(scale, scale * oppScale);
 }
 window.addEventListener('resize', () => { if (session) sizeCanvases(); });
 
