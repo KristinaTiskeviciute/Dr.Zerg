@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LOCK_DELAY_MS } from '../config';
 import { Board } from './board';
+import { fits } from './capsule';
 import { pickGarbageColumns, garbageForChain } from './garbage';
 import { Game, GameEvent, GameOptions } from './game';
 import { Rng } from './rng';
@@ -153,28 +154,49 @@ describe('Game', () => {
   });
 
   describe('locking with a half up in the neck', () => {
-    // Right-hand column full to the top: germs (no matches) from row 4 down, three red halves in rows 1–3.
+    // A column under the neck full to the top: germs (no matches) from row 4 down, three red halves in rows 1–3.
     const packed = (b: Board) => {
       b.set(15, 0, { kind: 'germ', color: B });
-      for (let r = 4; r < 16; r++) b.set(r, 7, { kind: 'germ', color: [R, Y, B][r % 3] });
-      for (const r of [1, 2, 3]) b.set(r, 7, { kind: 'pill', color: R, link: 'none' });
+      for (let r = 4; r < 16; r++) b.set(r, 5, { kind: 'germ', color: [R, Y, B][r % 3] });
+      for (const r of [1, 2, 3]) b.set(r, 5, { kind: 'pill', color: R, link: 'none' });
     };
 
     it('keeps playing if the lower half clears a line: the top half drops in', () => {
       const g = game(packed);
       // Vertical capsule there: red bottom at row 0 (makes 4 reds), yellow top up in the neck.
-      g.active = { row: 0, col: 7, orientation: 1, colors: [Y, R] };
+      g.active = { row: 0, col: 5, orientation: 1, colors: [Y, R] };
       const events = [...dropCapsule(g), ...runUntilFalling(g)];
       expect(events.some(e => e.type === 'clear')).toBe(true);
       expect(g.phase).toBe('falling');
-      expect(g.board.get(3, 7)).toMatchObject({ kind: 'pill', color: Y }); // dropped in and fell into the gap
+      expect(g.board.get(3, 5)).toMatchObject({ kind: 'pill', color: Y }); // dropped in and fell into the gap
     });
 
     it('tops out if nothing clears to make room', () => {
       const g = game(packed);
-      g.active = { row: 0, col: 7, orientation: 1, colors: [Y, B] }; // blue doesn't match the reds
+      g.active = { row: 0, col: 5, orientation: 1, colors: [Y, B] }; // blue doesn't match the reds
       [...dropCapsule(g), ...runUntilFalling(g)];
       expect(g.phase).toBe('lost');
+    });
+  });
+
+  describe('the bottle is closed over the shoulders', () => {
+    it('a half can stick up only under the neck (columns 2–5)', () => {
+      const board = new Board(8, 16);
+      const standing = (col: number) => fits(board, { row: 0, col, orientation: 1, colors: [R, B] });
+      expect([0, 1, 2, 3, 4, 5, 6, 7].map(standing)).toEqual([false, false, true, true, true, true, false, false]);
+    });
+
+    it("a tower at the side with one space left doesn't let a standing capsule stick up over it", () => {
+      // Right-hand column full except the top row.
+      const g = game(b => {
+        b.set(15, 0, { kind: 'germ', color: B });
+        for (let r = 1; r < 16; r++) b.set(r, 7, { kind: 'germ', color: [R, Y, B][r % 3] });
+      });
+      runUntilFalling(g);
+      g.step(STEP, { rotateCW: true }); // standing, top half up in the neck
+      for (let i = 0; i < 6; i++) g.step(STEP, { right: true });
+      expect(g.active!.col).toBe(5); // stops at the edge of the neck: can't reach the gap at column 7
+      expect(g.phase).toBe('falling');
     });
   });
 

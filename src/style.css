@@ -452,22 +452,40 @@ canvas { display: block; image-rendering: pixelated; }
   padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
   pointer-events: none;
 }
-.touch-pad .cluster { display: flex; gap: 10px; pointer-events: auto; }
+.touch-pad .cluster { display: grid; grid-template-columns: repeat(var(--cols), 58px); grid-template-rows: 58px 58px; pointer-events: auto; }
 .tbtn {
-  width: 62px; height: 62px; padding: 0; font-size: 22px; line-height: 1;
+  width: 58px; height: 58px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
   touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
 }
-.tbtn.ccw { background: var(--blue-dark); }
-.tbtn.cw { background: var(--red); margin-bottom: 18px; } /* raised, like a controller's face buttons */
+.tbtn .ico { width: 32px; height: 32px; fill: currentColor; display: block; pointer-events: none; }
 .tbtn.down { transform: translateY(2px); filter: brightness(1.35); }
-/* Landscape phones: the clusters sit at the left and right edges; moves as a cross (◀ ▶ over ▼). */
+
+/* All pixel-round (stepped edges). Move: a D-pad without the up button, on equal cells, so ◀ and ▶
+   are as far from the middle as ▼ is. */
+.touch-pad .move { --cols: 3; grid-template-areas: 'l . r' '. d .'; }
+.touch-pad .move .tbtn { --face: #2c3274; }
+.touch-pad .move [data-action='left'] { grid-area: l; }
+.touch-pad .move [data-action='right'] { grid-area: r; }
+.touch-pad .move [data-action='softDrop'] { grid-area: d; }
+
+/* Rotate: ↻ up-right, ↺ down-left. */
+.touch-pad .turn { --cols: 2; grid-template-areas: '. cw' 'ccw .'; }
+.tbtn.cw { grid-area: cw; --face: var(--red); }
+.tbtn.ccw { grid-area: ccw; --face: var(--blue-dark); }
+.tbtn.round {
+  --pixel-circle: polygon(30% 0, 70% 0, 70% 7%, 84% 7%, 84% 16%, 93% 16%, 93% 30%, 100% 30%, 100% 70%, 93% 70%, 93% 84%,
+    84% 84%, 84% 93%, 70% 93%, 70% 100%, 30% 100%, 30% 93%, 16% 93%, 16% 84%, 7% 84%, 7% 70%, 0 70%, 0 30%, 7% 30%,
+    7% 16%, 16% 16%, 16% 7%, 30% 7%);
+  position: relative; background: var(--edge); box-shadow: none; clip-path: var(--pixel-circle);
+}
+.tbtn.round::before {
+  content: ''; position: absolute; inset: 3px; clip-path: var(--pixel-circle); background: var(--face);
+  box-shadow: inset -4px -4px 0 rgba(0, 0, 0, 0.35), inset 4px 4px 0 rgba(255, 255, 255, 0.2);
+}
+.tbtn.round .ico { position: relative; }
+/* Landscape phones: the clusters sit at the left and right edges. */
 .touch-pad.sides { top: 0; align-items: center; padding: 52px 12px 12px; }
-.touch-pad.sides .move { display: grid; grid-template-columns: 62px 62px; grid-template-areas: 'l r' 'd d'; gap: 10px; }
-.touch-pad.sides .move [data-action='left'] { grid-area: l; }
-.touch-pad.sides .move [data-action='right'] { grid-area: r; }
-.touch-pad.sides .move [data-action='softDrop'] { grid-area: d; width: 100%; }
-.touch-pad.sides .turn { flex-direction: column-reverse; align-items: center; }
-.touch-pad.sides .tbtn.cw { margin-bottom: 0; margin-left: 18px; }
 
 .toast {
   position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 40;

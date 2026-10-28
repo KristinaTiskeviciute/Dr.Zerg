@@ -3,6 +3,11 @@
 // --- Board ---
 export const BOARD_COLS = 8;
 export const BOARD_ROWS = 16;
+/**
+ * The neck above the bottle is this many columns wide, centred (columns 2–5). Only there can a
+ * capsule half stick up above the top row; over the shoulders the bottle is closed.
+ */
+export const NECK_COLS = 4;
 
 // --- Levels and germs ---
 export const MIN_LEVEL = 0;

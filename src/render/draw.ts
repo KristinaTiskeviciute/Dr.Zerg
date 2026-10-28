@@ -1,4 +1,4 @@
-import { CELL_PX, GERM_WIGGLE_MS } from '../config';
+import { CELL_PX, GERM_WIGGLE_MS, NECK_COLS } from '../config';
 import { Cell, Color, Link, Pos } from '../core/types';
 import { BOTTLE, INK, SHADES } from './palette';
 import { germDefeated, germFrame, Grid, pillGrid, shade } from './sprites';
@@ -110,7 +110,7 @@ export function drawBottle(ctx: CanvasRenderingContext2D, gx: number, gy: number
   const s = CELL_PX;
   const w = cols * s;
   const h = rows * s;
-  const neckW = 4 * s;
+  const neckW = NECK_COLS * s;
   const neckX = gx + (w - neckW) / 2;
   const neckTop = gy - NECK_ROWS * s;
 

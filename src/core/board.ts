@@ -1,3 +1,4 @@
+import { NECK_COLS } from '../config';
 import { Cell, Color, Link, Pos } from './types';
 
 export interface Match {
@@ -48,8 +49,14 @@ export class Board {
   /** True if a falling piece may occupy this cell (empty, or above the bottle). */
   isFree(row: number, col: number): boolean {
     if (col < 0 || col >= this.cols || row >= this.rows) return false;
-    if (row < 0) return true;
+    if (row < 0) return row === -1 && this.inNeck(col); // the one row above the bottle, under the neck only
     return this.get(row, col) === null;
+  }
+
+  /** Under the neck (the columns where a half can stick up above the top row). */
+  inNeck(col: number): boolean {
+    const first = (this.cols - NECK_COLS) / 2;
+    return col >= first && col < first + NECK_COLS;
   }
 
   germCount(): number {
