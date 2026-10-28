@@ -878,9 +878,7 @@ function updateCpuCountdown(s: Extract<Session, { kind: 'cpu' }>, now: number): 
  * bottles (full size against one opponent, smaller against two or three).
  */
 function sizeCanvases(): void {
-  // The page's layout size: unlike innerWidth/innerHeight, pinch-zooming on a phone doesn't change it.
-  const viewW = document.documentElement.clientWidth;
-  const viewH = document.documentElement.clientHeight;
+  const { w: viewW, h: viewH } = viewSize();
   sizedFor = sizeKey();
   const { width, height } = boardPixelSize(8, 16);
   // Room for the touch buttons: along the bottom, or (landscape phones) down the sides.
@@ -946,7 +944,24 @@ function sizeCanvases(): void {
     yours = Math.max(0.5, yours);
     // The side columns start level with your bottle's shoulders, not the preview above them.
     play.style.setProperty('--shoulder', `${Math.round(BOTTLE_SHOULDER_PX * yours)}px`);
-    return setSizes(yours, Math.max(0.3, theirs));
+    setSizes(yours, Math.max(0.3, theirs));
+    // Safety check (portrait with buttons): browsers don't all agree on how much of the screen is
+    // visible, so measure where things ended up and shrink until your bottle clears the buttons.
+    if (pad && portrait) {
+      for (let tries = 0; tries < 4; tries++) {
+        const buttonsTop = Math.min(...[...touchPad.querySelectorAll<HTMLElement>('.cluster')].map(c => c.getBoundingClientRect().top));
+        const over = canvas.getBoundingClientRect().bottom + 10 - buttonsTop;
+        if (over <= 0) break;
+        // Shrinking both rows by k frees about (1 - k) of their height; the page is centred, so
+        // the bottle's bottom moves up by about half of that.
+        const k = Math.max(0.5, 1 - (2 * over) / (yours * height + theirs * height));
+        yours *= k;
+        theirs *= k;
+        play.style.setProperty('--shoulder', `${Math.round(BOTTLE_SHOULDER_PX * yours)}px`);
+        setSizes(yours, Math.max(0.3, theirs));
+      }
+    }
+    return;
   }
 
   const availW = viewW - 260 - n * 32 - chat.reservedWidth;
@@ -962,8 +977,18 @@ window.addEventListener('resize', () => { if (session) sizeCanvases(); });
 /** The page size the boards were last sized for. Phones don't always send a resize event (e.g. while a page is still settling), so frame() checks this too. */
 let sizedFor = '';
 /** What the board sizes depend on besides the opponents: the page size and the touch buttons' room (if showing). */
-const sizeKey = () => `${document.documentElement.clientWidth}x${document.documentElement.clientHeight}:${
+const sizeKey = () => `${viewSize().w}x${viewSize().h}:${
   settings.touch === 'buttons' && session !== null ? touchPad.offsetHeight : 'no buttons'}`;
+
+/**
+ * The part of the page you can see. The layout size (unlike innerWidth/innerHeight) isn't changed
+ * by pinch-zooming, but some phone browsers count the space behind their bottom toolbar in it, so
+ * the height is whichever is smaller.
+ */
+function viewSize(): { w: number; h: number } {
+  const el = document.documentElement;
+  return { w: el.clientWidth, h: Math.min(el.clientHeight, window.innerHeight || el.clientHeight) };
+}
 
 // --- Events and results ---
 
