@@ -1,6 +1,6 @@
 import { audio, VolumeKind } from './audio/audio';
 import {
-  BOARD_SNAPSHOT_HZ, CPU_SKILLS, CpuSkillName, ENDGAME_GERMS, ENDGAME_MUSIC_BOOST, MAX_FRAME_MS, MAX_LEVEL, MUSIC_MAX_RATE,
+  BOARD_SNAPSHOT_HZ, CELL_PX, CPU_SKILLS, CpuSkillName, ENDGAME_GERMS, ENDGAME_MUSIC_BOOST, MAX_FRAME_MS, MAX_LEVEL, MUSIC_MAX_RATE,
   MUSIC_SPEEDUP_PER_STEP, OPPONENT_BOARD_SCALE, ROUND_END_LINGER_MS, SIM_STEP_MS,
 } from './config';
 import { CpuController } from './core/ai';
@@ -13,6 +13,7 @@ import { GamepadInput, NavDir } from './input/gamepad';
 import { KeyboardInput } from './input/keyboard';
 import { LocalSeat, LocalSetup, CPU_NAMES, deviceLabel, seatNames } from './ui/local';
 import { Rumble } from './input/rumble';
+import { TouchControls } from './input/touch';
 import { BOTTLE_SHOULDER_PX, boardPixelSize, drawBoard, drawGerm } from './render/draw';
 import { BoardEffects } from './render/effects';
 import { gameView } from './render/view';
@@ -54,7 +55,7 @@ rumbleButton.addEventListener('click', () => { rumble.toggle(); renderPadUi(); b
 function renderPadUi(): void {
   const connected = pad.connected;
   rumbleButton.classList.toggle('hidden', !connected);
-  rumbleButton.textContent = '🎮 Rumble';
+  setLabel(rumbleButton, '🎮', 'Rumble');
   rumbleButton.classList.toggle('off', !rumble.on);
   $('#pad-hint').classList.toggle('hidden', !connected);
 }
@@ -266,10 +267,21 @@ window.addEventListener('pointerdown', () => audio.unlock(), { capture: true });
 
 const muteButton = $<HTMLButtonElement>('#toggle-mute');
 const musicButton = $<HTMLButtonElement>('#toggle-music');
+/** A top-bar button's icon and word (the word is hidden on narrow screens). */
+function setLabel(b: HTMLElement, icon: string, text: string): void {
+  const ico = document.createElement('span');
+  ico.className = 'ico';
+  ico.textContent = icon;
+  const txt = document.createElement('span');
+  txt.className = 'txt';
+  txt.textContent = ` ${text}`;
+  b.replaceChildren(ico, txt);
+}
+
 function renderAudioToggles(): void {
-  muteButton.textContent = audio.muted ? '🔇 Sound' : '🔊 Sound';
+  setLabel(muteButton, audio.muted ? '🔇' : '🔊', 'Sound');
   muteButton.classList.toggle('off', audio.muted);
-  musicButton.textContent = '♪ Music';
+  setLabel(musicButton, '♪', 'Music');
   musicButton.classList.toggle('off', !audio.musicOn);
 }
 muteButton.addEventListener('click', () => { audio.toggleMute(); blurUnlessPad(muteButton); });
@@ -305,6 +317,46 @@ document.addEventListener('pointerdown', e => {
   if (!(e.target as Element).closest('.audio-toggles')) volumePanel.classList.add('hidden');
 });
 audio.onChange(renderVolumes);
+
+// --- Touch controls: opt-in (a switch in the top bar on touchscreens), never assumed ---
+
+const touchButton = $<HTMLButtonElement>('#toggle-touch');
+const touchPause = $<HTMLButtonElement>('#touch-pause');
+function renderTouchUi(): void {
+  touchButton.classList.toggle('hidden', navigator.maxTouchPoints === 0);
+  setLabel(touchButton, '👆', 'Touch');
+  touchButton.classList.toggle('off', !settings.touch);
+  $('#touch-hint').classList.toggle('hidden', !settings.touch);
+}
+touchButton.addEventListener('click', () => {
+  settings.touch = !settings.touch;
+  saveSettings(settings);
+  renderTouchUi();
+  blurUnlessPad(touchButton);
+});
+touchPause.addEventListener('click', () => { togglePause(); touchPause.blur(); });
+renderTouchUi();
+// Gestures drive the keyboard player (in a local match: whoever joined with the keyboard).
+new TouchControls({
+  nudge: dir => keyboard.nudge(dir),
+  hold: dir => keyboard.setTouchHold(dir),
+  softDrop: on => (on ? keyboard.press('softDrop') : keyboard.release('softDrop')),
+  rotate: dir => {
+    const action = dir === 'cw' ? 'rotateCW' : 'rotateCCW';
+    keyboard.press(action);
+    keyboard.release(action);
+  },
+}, () => (canvas.clientWidth / canvas.width) * CELL_PX || 24, () => settings.touch && running());
+
+/** Every frame: the pause button and "no scrolling" only while touch controls are on in a game. */
+function updateTouchUi(): void {
+  const on = settings.touch && session !== null;
+  if (touchPause.classList.contains('hidden') === on) touchPause.classList.toggle('hidden', !on);
+  document.body.classList.toggle('touch-play', on);
+}
+
+/** A reminder of the gestures on the countdown (touch controls on). */
+const touchTip = () => (settings.touch ? ' · drag to move, tap to rotate' : '');
 
 // --- Menu ---
 
@@ -729,7 +781,7 @@ function updateOnline(s: OnlineSession, now: number): void {
       return setOverlayState('stale', 'Connection problem…', `Waiting to hear from ${staleOpponent(s, now)?.name ?? 'the others'}`, []);
     case 'countdown': {
       const vs = s.opps.length === 1 ? `vs ${s.opps[0].name}` : `vs ${s.opps.map(o => o.name).join(', ')}`;
-      return setOverlayState('countdown', secs(s.startAt), s.info.round > 1 ? `Round ${s.info.round}` : vs, []);
+      return setOverlayState('countdown', secs(s.startAt), (s.info.round > 1 ? `Round ${s.info.round}` : vs) + touchTip(), []);
     }
     default:
       if (overlayKey) {
@@ -774,7 +826,7 @@ function updateCpuCountdown(s: Extract<Session, { kind: 'cpu' }>, now: number): 
   if (now < s.startAt) {
     const n = s.seats.length - 1;
     const vs = s.local ? hud.playerNames.join(' vs ') : n === 1 ? 'vs CPU' : `vs ${n} CPUs`;
-    setOverlayState('countdown', String(Math.ceil((s.startAt - now) / 1000)), s.match.round > 1 ? `Round ${s.match.round}` : vs, []);
+    setOverlayState('countdown', String(Math.ceil((s.startAt - now) / 1000)), (s.match.round > 1 ? `Round ${s.match.round}` : vs) + touchTip(), []);
   } else if (overlayKey === 'countdown') {
     overlayKey = '';
     hideOverlay();
@@ -1011,7 +1063,7 @@ function togglePause(): void {
   paused = !paused;
   audio.setMusicPaused(paused);
   resetInputs();
-  if (paused) showOverlay('Paused', 'Press P to resume', [['Resume', togglePause], ['Quit to menu', showMenu]]);
+  if (paused) showOverlay('Paused', settings.touch ? 'Tap Resume to keep playing' : 'Press P to resume', [['Resume', togglePause], ['Quit to menu', showMenu]]);
   else hideOverlay();
 }
 
@@ -1263,6 +1315,7 @@ function frame(now: number): void {
   updateChat();
   voiceBar.tick();
   updateLocalPads();
+  updateTouchUi();
 
   if (running()) {
     acc += dt;

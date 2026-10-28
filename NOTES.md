@@ -93,6 +93,11 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - **Hosting:** Cloudflare Workers + Durable Objects (via `partyserver`), frontend and relay in one `wrangler deploy`. Location hint: eastern North America.
 - **New seed every round** of best-of-3.
 
+## Touch controls (opt-in)
+- 👆 switch in the top bar, shown on touchscreens only, off by default and remembered: being on a phone doesn't mean someone wants touch controls (decided).
+- Gestures (`src/input/touch.ts`, rules in `Gesture`, tested): drag sideways = one column per ~0.9 cell of finger travel, and keeps pushing that way (slides into gaps); tap = rotate (left half ↺, right half ↻); drag down and hold = soft drop. Taps on buttons/menus/chat are never gestures. Drives the keyboard player through `KeyboardInput.nudge` / `setTouchHold` (no key auto-repeat).
+- While on in a game: ⏸ button in the top bar, and the page doesn't scroll/zoom/select under your finger. Narrow screens show the top bar as icons.
+
 ## Local matches (same screen)
 - Menu → Local → setup screen (`src/ui/local.ts`): each person presses ✕ on their controller to join (or "Join with keyboard", one keyboard player at most), CPUs fill seats, everyone sets level/speed. 2–4 seats, at least one person. People sit first (P1 gets the main bottle), named P1–P4; CPUs named after the germs.
 - Plays as a `Match` like Vs CPU (same session kind, `local: true`): each person seat has its own `KeyboardInput`, fed only by their controller (`GamepadInput.route`); controllers that didn't join drive nothing. Any controller can pause and work the menus. Rumble goes to each player's own controller.

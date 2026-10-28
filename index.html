@@ -12,10 +12,12 @@
   </head>
   <body>
     <div class="audio-toggles">
+      <button type="button" id="touch-pause" class="hidden" title="Pause"><span class="ico">⏸</span></button>
+      <button type="button" id="toggle-touch" class="hidden" title="Touch controls on/off (drag to move, tap to rotate)"></button>
       <button type="button" id="toggle-rumble" class="hidden" title="Controller rumble on/off"></button>
       <button type="button" id="toggle-music" title="Music on/off"></button>
       <button type="button" id="toggle-mute" title="Mute all sound (M)"></button>
-      <button type="button" id="toggle-volume" title="Volume">🎚 Volume</button>
+      <button type="button" id="toggle-volume" title="Volume"><span class="ico">🎚</span><span class="txt"> Volume</span></button>
       <div id="volume-panel" class="volume-panel hidden">
         <label>Music <input type="range" min="0" max="100" data-volume="music" /><output></output></label>
         <label>Sound <input type="range" min="0" max="100" data-volume="sfx" /><output></output></label>
@@ -120,6 +122,9 @@
         <p class="controls hidden" id="pad-hint">
           🎮 Controller: <kbd>◯</kbd> rotate ↻ · <kbd>✕</kbd> rotate ↺ · <kbd>D-pad</kbd> / stick move, <kbd>↓</kbd> drop · <kbd>Options</kbd> pause · <kbd>Create</kbd> mute voice<br />
           Menus: <kbd>D-pad</kbd> move · <kbd>✕</kbd> select · <kbd>◯</kbd> back
+        </p>
+        <p class="controls hidden" id="touch-hint">
+          👆 Touch: drag sideways to move · tap to rotate (left side ↺, right side ↻) · drag down and hold to drop · <kbd>⏸</kbd> pause
         </p>
       </section>
 

@@ -21,6 +21,8 @@ export interface Settings {
   fastGarbage: boolean;
   /** Outbreak mode in Vs CPU with 2–3 CPUs. */
   outbreak: boolean;
+  /** Touch controls (drag, tap): opt-in, even on phones. */
+  touch: boolean;
 }
 
 export const SPEED_LABEL: Record<Speed, string> = { low: 'Low', med: 'Med', high: 'Hi' };
@@ -28,7 +30,7 @@ export const SKILL_LABEL: Record<CpuSkillName, string> = { easy: 'Easy', normal:
 
 const KEY = 'drzerg.settings';
 const DEFAULTS: Settings = {
-  mode: 'solo', name: '', level: 5, speed: 'med', cpuSkill: 'normal', cpuLevel: 5, cpuSpeed: 'med', cpuCount: 1, fastGarbage: false, outbreak: false,
+  mode: 'solo', name: '', level: 5, speed: 'med', cpuSkill: 'normal', cpuLevel: 5, cpuSpeed: 'med', cpuCount: 1, fastGarbage: false, outbreak: false, touch: false,
 };
 
 const clampLevel = (n: unknown, fallback: number) =>
@@ -51,6 +53,7 @@ export function loadSettings(): Settings {
         cpuCount: [1, 2, 3].includes(raw.cpuCount) ? raw.cpuCount : DEFAULTS.cpuCount,
         fastGarbage: raw.fastGarbage === true,
         outbreak: raw.outbreak === true,
+        touch: raw.touch === true,
       };
     }
   } catch { /* ignore */ }

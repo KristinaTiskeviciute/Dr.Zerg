@@ -216,6 +216,15 @@ kbd {
 }
 .audio-toggles button { font-size: 9px; padding: 9px 10px 8px; min-width: 96px; }
 .audio-toggles button.off { opacity: 0.5; text-decoration: line-through; }
+/* Touch controls on, in a game: the page doesn't scroll, zoom or select text under your finger. */
+body.touch-play { touch-action: none; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body.touch-play .chat-log { touch-action: pan-y; }
+@media (max-width: 520px) {
+  /* Narrow screens: icons only, so the whole top bar fits. */
+  .audio-toggles { gap: 8px; }
+  .audio-toggles button { min-width: 0; padding: 9px 11px 8px; font-size: 12px; }
+  .audio-toggles .txt { display: none; }
+}
 .volume-panel {
   position: absolute; top: calc(100% + 14px); right: 0; width: 280px; padding: 16px;
   display: flex; flex-direction: column; gap: 14px;

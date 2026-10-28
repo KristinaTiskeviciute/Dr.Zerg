@@ -31,6 +31,10 @@ export class KeyboardInput {
   private readonly blocked = new Set<Action>();
   /** While false, keys pass through untouched (so Space still works on menu buttons). */
   enabled = false;
+  /** Touch controls: one-column moves waiting their turn (a quick drag can ask for several at once). */
+  private nudges: ('left' | 'right')[] = [];
+  /** Touch controls: the finger keeps pushing this way (like holding a key, but no auto-repeat). */
+  private touchHold: 'left' | 'right' | null = null;
 
   constructor(bindings: Bindings = DEFAULT_BINDINGS) {
     for (const [action, codes] of Object.entries(bindings) as [Action, string[]][]) {
@@ -59,6 +63,18 @@ export class KeyboardInput {
     this.repeating = false;
     this.freshPress = false;
     this.blocked.clear();
+    this.nudges = [];
+    this.touchHold = null;
+  }
+
+  /** Touch: move one column (one per step, in order). */
+  nudge(dir: 'left' | 'right'): void {
+    if (this.enabled && this.nudges.length < 8) this.nudges.push(dir);
+  }
+
+  /** Touch: keep pushing that way (so a blocked capsule slides in when a gap lines up), or stop. */
+  setTouchHold(dir: 'left' | 'right' | null): void {
+    this.touchHold = dir;
   }
 
   /**
@@ -81,8 +97,8 @@ export class KeyboardInput {
       rotateCCW: this.pressed.has('rotateCCW'),
       softDrop: !this.blocked.has('softDrop') && (this.held.has('softDrop') || this.pressed.has('softDrop')),
       downHeld: this.held.has('softDrop') || this.pressed.has('softDrop'),
-      holdLeft: this.horizontal === 'left' && this.held.has('left'),
-      holdRight: this.horizontal === 'right' && this.held.has('right'),
+      holdLeft: (this.horizontal === 'left' && this.held.has('left')) || this.touchHold === 'left',
+      holdRight: (this.horizontal === 'right' && this.held.has('right')) || this.touchHold === 'right',
     };
 
     if (this.horizontal) {
@@ -111,6 +127,7 @@ export class KeyboardInput {
       }
     }
 
+    if (!out.left && !out.right && this.nudges.length > 0) out[this.nudges.shift()!] = true;
     this.pressed.clear();
     return out;
   }

@@ -65,3 +65,28 @@ describe('KeyboardInput', () => {
     expect(movesOver(STEP)).toBe(1);
   });
 });
+
+describe('touch input (via KeyboardInput)', () => {
+  it('queued one-column moves come out one per step, in order', () => {
+    const kb = new KeyboardInput();
+    kb.enabled = true;
+    kb.nudge('right'); kb.nudge('right'); kb.nudge('left');
+    const moves = [1, 2, 3, 4].map(() => { const s = kb.poll(16); return s.left ? 'L' : s.right ? 'R' : '-'; });
+    expect(moves).toEqual(['R', 'R', 'L', '-']);
+  });
+
+  it('a touch push holds that way without auto-repeating', () => {
+    const kb = new KeyboardInput();
+    kb.enabled = true;
+    kb.setTouchHold('left');
+    let moves = 0;
+    for (let i = 0; i < 60; i++) {
+      const s = kb.poll(16);
+      expect(s.holdLeft).toBe(true);
+      if (s.left) moves++;
+    }
+    expect(moves).toBe(0);
+    kb.setTouchHold(null);
+    expect(kb.poll(16).holdLeft).toBe(false);
+  });
+});
