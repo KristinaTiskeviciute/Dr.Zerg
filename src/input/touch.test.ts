@@ -28,19 +28,20 @@ describe('touch gestures', () => {
     expect(log).toEqual([]);
   });
 
-  it('dragging sideways moves one column per cell of travel, and keeps pushing that way', () => {
+  it('dragging sideways moves one column per 1.3 cells of travel (the first takes 1.6), and keeps pushing', () => {
     g.down(100, 400, 0);
-    g.move(110, 400); // not far enough yet
-    g.move(160, 400); // 60 px = 3 steps of 18 px
+    g.move(130, 400); // 30 px: not far enough for the first column (32 px)
+    expect(log).toEqual([]);
+    g.move(185, 400); // 85 px = 32 + 26 + 26
     expect(log).toEqual(['nudge right', 'hold right', 'nudge right', 'nudge right']);
-    g.up(160, 400, 300);
+    g.up(185, 400, 300);
     expect(log.at(-1)).toBe('hold null'); // lifting stops the push, and no rotation
   });
 
   it('moving back the other way stops pushing before moving that way', () => {
     g.down(100, 400, 0);
-    g.move(80, 400); // left: one step, so the finger "is" at 82
-    g.move(95, 400); // back right by more than half a cell
+    g.move(66, 400); // left: one step (32 px), so the finger "is" at 68
+    g.move(80, 400); // back right by more than half a cell
     expect(log).toEqual(['nudge left', 'hold left', 'hold null']);
   });
 
@@ -54,6 +55,13 @@ describe('touch gestures', () => {
     g.up(205, 450, 700);
     expect(log.slice(-2)).toEqual(['drop true', 'drop false']);
     expect(log).not.toContain('rotate cw');
+  });
+
+  it('sideways wobble while dropping does not move the capsule', () => {
+    g.down(200, 400, 0);
+    g.move(200, 440); // dropping
+    g.move(240, 470); // drifts 40 px sideways
+    expect(log).toEqual(['drop true']);
   });
 
   it('a mostly sideways drag does not start a drop', () => {

@@ -18,8 +18,9 @@ export interface GestureSink {
 /** A tap: short and nearly still. */
 const TAP_MS = 250;
 const TAP_SLOP = 0.6; // cells
-/** Finger travel per column moved. */
-const MOVE_STEP = 0.9; // cells
+/** Finger travel per column moved, and extra for the first one (so a wobbly tap or drop doesn't move). */
+const MOVE_STEP = 1.3; // cells
+const FIRST_STEP_EXTRA = 0.3; // cells
 /** Drag this far down (more down than sideways) to start soft-dropping. */
 const DROP_START = 1.5; // cells
 /** Move back this far against the last move to stop pushing. */
@@ -54,9 +55,11 @@ export class Gesture {
   move(x: number, y: number): void {
     const c = this.cellPx();
     const step = c * MOVE_STEP;
-    // Sideways: one column per step of finger travel; keep pushing that way afterwards.
-    while (x - this.lastX >= step) this.step('right', step);
-    while (this.lastX - x >= step) this.step('left', -step);
+    // Sideways: one column per step of finger travel (the first takes a bit more); keep pushing
+    // that way afterwards. Not while dropping, so a slightly slanted drag down stays put.
+    const need = () => step + (this.moved ? 0 : c * FIRST_STEP_EXTRA);
+    while (!this.dropping && x - this.lastX >= need()) this.step('right', need());
+    while (!this.dropping && this.lastX - x >= need()) this.step('left', -need());
     if (this.pushing === 'right' && this.lastX - x > c * BACK_OFF) this.setPush(null);
     if (this.pushing === 'left' && x - this.lastX > c * BACK_OFF) this.setPush(null);
     // Down: soft drop while the finger stays down there.
