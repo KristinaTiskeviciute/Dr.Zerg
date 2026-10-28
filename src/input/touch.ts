@@ -19,8 +19,8 @@ export interface GestureSink {
 const TAP_MS = 250;
 const TAP_SLOP = 0.6; // cells
 /** Finger travel per column moved, and extra for the first one (so a wobbly tap or drop doesn't move). */
-const MOVE_STEP = 1.3; // cells
-const FIRST_STEP_EXTRA = 0.3; // cells
+const MOVE_STEP = 1.1; // cells
+const FIRST_STEP_EXTRA = 0.2; // cells
 /** Drag this far down (more down than sideways) to start soft-dropping. */
 const DROP_START = 1.5; // cells
 /** Move back this far against the last move to stop pushing. */

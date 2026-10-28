@@ -28,20 +28,20 @@ describe('touch gestures', () => {
     expect(log).toEqual([]);
   });
 
-  it('dragging sideways moves one column per 1.3 cells of travel (the first takes 1.6), and keeps pushing', () => {
+  it('dragging sideways moves one column per 1.1 cells of travel (the first takes 1.3), and keeps pushing', () => {
     g.down(100, 400, 0);
-    g.move(130, 400); // 30 px: not far enough for the first column (32 px)
+    g.move(124, 400); // 24 px: not far enough for the first column (26 px)
     expect(log).toEqual([]);
-    g.move(185, 400); // 85 px = 32 + 26 + 26
+    g.move(172, 400); // 72 px = 26 + 22 + 22 (+2)
     expect(log).toEqual(['nudge right', 'hold right', 'nudge right', 'nudge right']);
-    g.up(185, 400, 300);
+    g.up(172, 400, 300);
     expect(log.at(-1)).toBe('hold null'); // lifting stops the push, and no rotation
   });
 
   it('moving back the other way stops pushing before moving that way', () => {
     g.down(100, 400, 0);
-    g.move(66, 400); // left: one step (32 px), so the finger "is" at 68
-    g.move(80, 400); // back right by more than half a cell
+    g.move(72, 400); // left: one step (26 px), so the finger "is" at 74
+    g.move(86, 400); // back right by more than half a cell
     expect(log).toEqual(['nudge left', 'hold left', 'hold null']);
   });
 
