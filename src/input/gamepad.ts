@@ -28,6 +28,25 @@ const OPTIONS = 9;
 
 export type NavDir = 'up' | 'down' | 'left' | 'right';
 
+/** A connected controller, as shown to players (e.g. on the local match setup screen). */
+export interface PadInfo {
+  index: number;
+  name: string;
+  /** The browser maps its buttons to the standard layout (otherwise buttons may be mixed up). */
+  standard: boolean;
+  xbox: boolean;
+}
+
+/** A readable controller name from the browser's id ("DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c …)"). */
+export function padName(id: string): string {
+  return id.replace(/\s*\(.*\)\s*$/, '').replace(/^[0-9a-f]{4}-[0-9a-f]{4}-/i, '').trim() || 'Controller';
+}
+
+/** Xbox-style controllers (buttons labelled A/B instead of ✕/◯). */
+export function isXbox(id: string): boolean {
+  return /xbox|xinput|vendor: 045e|^045e-/i.test(id);
+}
+
 export interface PadTarget {
   press(action: Action): void;
   release(action: Action): void;
@@ -87,6 +106,11 @@ export class GamepadInput {
 
   get connected(): boolean {
     return this.pads().length > 0;
+  }
+
+  /** The controllers the browser can see right now. */
+  list(): PadInfo[] {
+    return this.pads().map(p => ({ index: p.index, name: padName(p.id), standard: p.mapping === 'standard', xbox: isXbox(p.id) }));
   }
 
   /** Call every frame: browsers only report controller state when asked. */

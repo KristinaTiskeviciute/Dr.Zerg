@@ -472,6 +472,17 @@ function startCpuMatch(): void {
 // --- Local matches: several people on this screen (controllers, the keyboard) and CPUs ---
 
 const localSetup = new LocalSetup(settings, { onStart: startLocal, onBack: showMenu });
+/** The connected controllers last shown on the setup screen. */
+let shownPads = '';
+function updateLocalPads(): void {
+  if (!localSetup.visible) return void (shownPads = '');
+  const list = pad.list();
+  const key = JSON.stringify(list);
+  if (key !== shownPads) {
+    shownPads = key;
+    localSetup.setPads(list);
+  }
+}
 /** The last local lineup, for "Play again". */
 let lastLocal: LocalSeat[] = [];
 
@@ -1198,6 +1209,7 @@ function frame(now: number): void {
   if (session?.kind === 'cpu') updateCpuCountdown(session, now);
   updateChat();
   voiceBar.tick();
+  updateLocalPads();
 
   if (running()) {
     acc += dt;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { GamepadInput } from './gamepad';
+import { GamepadInput, isXbox, padName } from './gamepad';
 import { Action } from './keyboard';
 
 /** A fake standard-layout controller whose buttons/stick the test can set. */
@@ -12,6 +12,21 @@ function fakePad() {
   };
   return { pad, effects, set: (i: number, on: boolean) => { buttons[i].pressed = on; } };
 }
+
+describe('controller names', () => {
+  it('turns browser ids into readable names', () => {
+    expect(padName('DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)')).toBe('DualSense Wireless Controller');
+    expect(padName('054c-0ce6-DualSense Wireless Controller')).toBe('DualSense Wireless Controller'); // Firefox
+    expect(padName('Xbox 360 Controller (XInput STANDARD GAMEPAD)')).toBe('Xbox 360 Controller');
+    expect(padName('')).toBe('Controller');
+  });
+
+  it('spots Xbox controllers', () => {
+    expect(isXbox('Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)')).toBe(true);
+    expect(isXbox('045e-0b13-Xbox Wireless Controller')).toBe(true);
+    expect(isXbox('DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)')).toBe(false);
+  });
+});
 
 describe('GamepadInput', () => {
   let fake: ReturnType<typeof fakePad>;

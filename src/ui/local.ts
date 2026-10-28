@@ -1,4 +1,5 @@
 import { CpuSkillName, MAX_LEVEL, MIN_LEVEL, Speed } from '../config';
+import type { PadInfo } from '../input/gamepad';
 import { $, saveSettings, Settings, SKILL_LABEL, SPEED_LABEL } from './dom';
 
 /** A seat in a local match: a person (keyboard or a controller) or a CPU. */
@@ -32,6 +33,8 @@ export function deviceLabel(s: LocalSeat): string {
  */
 export class LocalSetup {
   seats: LocalSeat[] = [];
+  /** The controllers the browser sees (updated as they connect). */
+  private pads: PadInfo[] = [];
 
   constructor(
     private readonly settings: Settings,
@@ -88,6 +91,12 @@ export class LocalSetup {
     $('#local').classList.add('hidden');
   }
 
+  /** The connected controllers changed. */
+  setPads(pads: PadInfo[]): void {
+    this.pads = pads;
+    this.render();
+  }
+
   /** A controller pressed ✕: it joins (true), unless it already has a seat or there's no room. */
   joinPad(index: number): boolean {
     if (!this.visible || this.seats.some(s => s.kind === 'person' && s.device === index)) return false;
@@ -106,6 +115,37 @@ export class LocalSetup {
     const at = this.seats.filter(s => s.kind === 'person').length;
     this.seats.splice(at, 0, { kind: 'person', device, level: this.settings.level, speed: this.settings.speed });
     this.render();
+  }
+
+  /**
+   * Which controllers the browser sees, and what each one should do next. Helps when a
+   * controller "does nothing": not connected, not woken up yet, or an odd button layout.
+   */
+  private renderPads(names: string[]): void {
+    const items = this.pads.map(p => {
+      const li = document.createElement('li');
+      const seat = this.seats.findIndex(s => s.kind === 'person' && s.device === p.index);
+      const name = document.createElement('span');
+      name.textContent = `🎮 ${p.index + 1} · ${p.name}`;
+      const note = document.createElement('span');
+      note.className = seat >= 0 ? 'ok' : 'hint';
+      note.textContent = seat >= 0 ? `joined as ${names[seat]}` : `press ${p.xbox ? 'A' : '✕'} to join`;
+      li.append(name, note);
+      if (!p.standard) {
+        const warn = document.createElement('span');
+        warn.className = 'warn';
+        warn.textContent = 'buttons may be mixed up in this browser (Chrome or Edge work best)';
+        li.append(warn);
+      }
+      return li;
+    });
+    if (items.length === 0) {
+      const li = document.createElement('li');
+      li.className = 'hint';
+      li.textContent = 'None yet. Connect a controller (Bluetooth or cable), then press any button on it: browsers only show a controller after a button press.';
+      items.push(li);
+    }
+    $('#local-pads').replaceChildren(...items);
   }
 
   render(): void {
@@ -146,7 +186,7 @@ export class LocalSetup {
     if (this.seats.length < MAX_LOCAL_PLAYERS) {
       const li = document.createElement('li');
       li.className = 'empty';
-      li.textContent = `Press ✕ on a controller to join (${MAX_LOCAL_PLAYERS - this.seats.length} seat${this.seats.length === 3 ? '' : 's'} left)`;
+      li.textContent = `Press ✕ (A on Xbox) on a controller to join (${MAX_LOCAL_PLAYERS - this.seats.length} seat${this.seats.length === 3 ? '' : 's'} left)`;
       items.push(li);
     }
     list.replaceChildren(...items);
@@ -159,8 +199,9 @@ export class LocalSetup {
     for (const [id, on] of [['#local-fast', this.settings.fastGarbage], ['#local-outbreak', this.settings.outbreak]] as const) {
       for (const b of document.querySelectorAll<HTMLButtonElement>(`${id} button`)) b.classList.toggle('on', (b.dataset.value === 'on') === on);
     }
+    this.renderPads(names);
     $('#local-status').textContent =
-      this.seats.length === 0 ? 'Everyone with a controller: press ✕ to join. Or join with the keyboard.' :
+      this.seats.length === 0 ? 'Everyone with a controller: press ✕ (A on Xbox) to join. Or join with the keyboard.' :
       !this.seats.some(s => s.kind === 'person') ? 'At least one person needs to join.' :
       this.seats.length < 2 ? 'Waiting for another player (or add a CPU).' :
       'Ready when you are.';
