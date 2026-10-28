@@ -391,29 +391,49 @@ canvas { display: block; image-rendering: pixelated; }
   #menu.cpu .panel-cols { grid-template-columns: 1fr; }
 }
 
-/* Phones: stars left of your bottle, germ counts right of it, the other bottles in a tight row below. */
+/*
+ * Phones (the class is set from main.ts with the bottle sizes): stats on either side of your
+ * bottle, starting at its shoulders. Portrait: the other bottles in a tight row below.
+ * Landscape (short screens): the other bottles to the right.
+ */
+#play.compact { display: grid; justify-content: center; }
+#play.compact .stage { grid-area: stage; }
+#play.compact .hud { display: contents; }
+/* Sized to their content (not stretched), since the bottle size is worked out from their widths. */
+#play.compact .hud-left { grid-area: left; gap: 14px; justify-self: end; align-self: start; margin-top: var(--shoulder, 0px); }
+#play.compact .hud-right { grid-area: right; gap: 14px; justify-self: start; align-self: start; margin-top: var(--shoulder, 0px); }
+#play.compact .opponents { grid-area: opps; gap: 8px; margin-bottom: 24px; }
+/* Name labels stay within their own bottle's width (no running into each other or off the screen). */
+#play.compact .opponent .label, #play.compact .stage .board-label { left: 0; right: 0; font-size: 7px; }
+#play.compact .hud .controls { display: none; }
+#play.compact .hud strong { font-size: 18px; }
+#play.compact .hud .germ-counts { flex-direction: column; flex-wrap: nowrap; gap: 8px; }
+#play.compact .hud-rounds .who-name { max-width: 64px; font-size: 8px; }
+#play.compact .pips-row { gap: 6px; }
+#play.compact .pips { gap: 3px; }
+#play.compact .pip { width: 11px; height: 11px; }
+#play.compact .fast-flag { font-size: 7px; max-width: 90px; }
+
+/* Portrait: equal side columns, so your bottle is in the middle of the screen. */
+#play.portrait {
+  width: calc(100vw - var(--chat-room, 0px));
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: 'left stage right' 'opps opps opps';
+  align-items: center; gap: 12px 10px; padding-top: 64px;
+}
+#play.portrait .opponents { justify-self: center; }
+#play.portrait.local .stage { margin-bottom: 22px; } /* room for your bottle's name label */
+
+/* Landscape phones: everything in one row, sized to the screen height. */
+#play.landscape {
+  grid-template-columns: auto auto auto auto; grid-template-areas: 'left stage right opps';
+  align-items: start; gap: 0 12px; padding: 52px 12px 12px;
+}
+#play.landscape .opponents { align-self: start; gap: 10px; }
+
+/* Narrow menus: the four mode buttons fit the panel. */
 @media (max-width: 520px) {
-  #play {
-    display: grid; grid-template-columns: auto auto auto; grid-template-areas: 'left stage right' 'opps opps opps';
-    justify-content: center; align-items: center; gap: 12px 10px; padding-top: 64px;
-  }
-  #play .stage { grid-area: stage; }
-  #play .hud { display: contents; }
-  /* Sized to their content (not stretched by a wide row below), since the bottle size is worked out from their widths. */
-  #play .hud-left { grid-area: left; gap: 14px; justify-self: end; align-self: start; margin-top: var(--shoulder, 0px); }
-  #play .hud-right { grid-area: right; gap: 14px; justify-self: start; align-self: start; margin-top: var(--shoulder, 0px); }
-  #play .opponents { grid-area: opps; justify-self: center; gap: 8px; margin-bottom: 24px; }
-  #play.local .stage { margin-bottom: 22px; } /* room for your bottle's name label */
-  /* Name labels stay within their own bottle's width (no running into each other or off the screen). */
-  .opponent .label, .stage .board-label { left: 0; right: 0; font-size: 7px; }
-  .hud .controls { display: none; }
-  .hud strong { font-size: 18px; }
-  .hud .germ-counts { flex-direction: column; flex-wrap: nowrap; gap: 8px; }
-  .hud-rounds .who-name { max-width: 64px; font-size: 8px; }
-  .pips-row { gap: 6px; }
-  .pips { gap: 3px; }
-  .pip { width: 11px; height: 11px; }
-  .fast-flag { font-size: 7px; }
+  .seg-mode { gap: 6px; }
+  .seg-mode button { font-size: 9px; padding: 12px 2px 10px; }
 }
 
 /* Controller: the selected control is always marked */

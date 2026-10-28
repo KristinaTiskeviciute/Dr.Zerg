@@ -800,19 +800,46 @@ function sizeCanvases(): void {
     opponents.size(theirs);
   };
 
-  if (window.innerWidth <= 520) {
-    // Phones: your bottle between the stars and the germ counts, the others in a row below it.
-    const side = Math.min(240, $('.hud-left').offsetWidth + $('.hud-right').offsetWidth + 20);
-    const availW = window.innerWidth - 32 - chat.reservedWidth;
-    let yours = (availW - side - 6) / width; // a few px spare for rounding
-    let theirs = n ? Math.min(yours * (local ? 1 : oppScale), (availW - (n - 1) * 8 - 6) / (n * width)) : 0;
-    // Both rows have to fit the height too (minus padding and the name labels).
-    const availH = window.innerHeight - 64 - 36 - (local ? 22 : 0) - (n ? 34 : 0);
-    const shrink = availH / (yours * height + theirs * height);
-    if (shrink < 1) { yours *= shrink; theirs *= shrink; }
+  // Phones: your bottle between the stats columns. Portrait puts the others in a row below,
+  // landscape (a short screen) puts them to the right.
+  const portrait = window.innerWidth <= 520;
+  const landscape = !portrait && window.innerHeight <= 520;
+  const play = $('#play');
+  play.classList.toggle('compact', portrait || landscape);
+  play.classList.toggle('portrait', portrait);
+  play.classList.toggle('landscape', landscape);
+  const left = $('.hud-left').offsetWidth;
+  const right = $('.hud-right').offsetWidth;
+  if (portrait || landscape) {
+    const availW = window.innerWidth - chat.reservedWidth;
+    let yours: number;
+    let theirs: number;
+    if (portrait) {
+      // Equal side columns (so your bottle is centred): room for the wider one twice.
+      const side = Math.min(240, 2 * Math.max(left, right) + 20);
+      yours = (availW - 32 - side - 6) / width; // a few px spare for rounding
+      theirs = n ? Math.min(yours * (local ? 1 : oppScale), (availW - 32 - (n - 1) * 8 - 6) / (n * width)) : 0;
+      // Both rows have to fit the height too (minus padding and the name labels).
+      const availH = window.innerHeight - 64 - 36 - (local ? 22 : 0) - (n ? 34 : 0);
+      const shrink = availH / (yours * height + theirs * height);
+      if (shrink < 1) { yours *= shrink; theirs *= shrink; }
+    } else {
+      // One row, as tall as the screen allows (minus padding and the name labels below).
+      // The others use whatever width is left, up to the size of yours.
+      yours = (window.innerHeight - 52 - 12 - 30) / height;
+      const room = availW - 24 - left - right - 12 * 3 - Math.max(0, n - 1) * 10 - 6;
+      theirs = n ? Math.min(yours, (room - yours * width) / (n * width)) : 0;
+      if (n && theirs < yours * oppScale) {
+        // Not even room for the usual smaller size: shrink everything to fit.
+        theirs = yours * oppScale;
+        const shrink = room / (yours * width + n * theirs * width);
+        yours *= shrink;
+        theirs *= shrink;
+      }
+    }
     yours = Math.max(0.5, yours);
     // The side columns start level with your bottle's shoulders, not the preview above them.
-    $('#play').style.setProperty('--shoulder', `${Math.round(BOTTLE_SHOULDER_PX * yours)}px`);
+    play.style.setProperty('--shoulder', `${Math.round(BOTTLE_SHOULDER_PX * yours)}px`);
     return setSizes(yours, Math.max(0.3, theirs));
   }
 
