@@ -12,6 +12,7 @@ npm run dev          # the game: http://localhost:5173
 npm run dev:server   # the multiplayer relay (in a second terminal), port 8787
 npm test             # unit tests
 npm run test:browser # smoke test in a real browser (needs Edge or Chrome installed)
+npm run test:online  # online smoke test: starts the relay, two players in a room
 npm run build        # type-check + production build into dist/
 ```
 
@@ -22,7 +23,7 @@ try a room on your own with two tabs: Online → Create room in one, open the li
 
 After changing `wrangler.jsonc`, regenerate the Worker types with `npm run types:worker`.
 
-The browser smoke test (`e2e/smoke.mjs`) checks what unit tests can't: the menu fits, Solo, Vs CPU and Local start and pause, controllers get around the menus and join, and the touch buttons keep clear of the bottle on phone-sized screens. Run it after layout or menu changes; it isn't part of `npm run deploy`.
+The browser smoke test (`e2e/smoke.mjs`) checks what unit tests can't: the menu fits, Solo, Vs CPU and Local start and pause, controllers get around the menus and join, and the touch buttons keep clear of the bottle on phone-sized screens. `npm run test:online` (`e2e/online.mjs`) does the same for online play: it starts its own relay and game server (on ports 8797 and 5197, so a dev server can keep running), puts two players and a CPU in a room, and checks the lobby, chat, starting, boards arriving, the shared pause and a player dropping out. Run them after layout, menu or online changes; neither is part of `npm run deploy`.
 
 Dev-only extras: `?play=7` in the URL jumps straight into level 7, and the `9` key sends yourself 2–4 garbage pieces.
 

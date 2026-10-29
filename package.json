@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "node e2e/smoke.mjs",
+    "test:online": "node e2e/online.mjs",
     "typecheck": "tsc --noEmit && tsc -p server",
     "types:worker": "wrangler types server/worker-configuration.d.ts"
   },
