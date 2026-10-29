@@ -1,35 +1,36 @@
-import { audio, VolumeKind } from './audio/audio';
-import {
-  BOARD_SNAPSHOT_HZ, CELL_PX, CPU_SKILLS, CpuSkillName, ENDGAME_GERMS, ENDGAME_MUSIC_BOOST, MAX_FRAME_MS, MAX_LEVEL, MUSIC_MAX_RATE,
-  MUSIC_SPEEDUP_PER_STEP, OPPONENT_BOARD_SCALE, ROUND_END_LINGER_MS, SIM_STEP_MS,
-} from './config';
+import { audio } from './audio/audio';
+import { musicRate, playSound } from './audio/game-sounds';
+import { BOARD_SNAPSHOT_HZ, CPU_SKILLS, CpuSkillName, MAX_FRAME_MS, MAX_LEVEL, ROUND_END_LINGER_MS, SIM_STEP_MS } from './config';
 import { CpuController } from './core/ai';
 import { Game, GameEvent } from './core/game';
 import { Match } from './core/match';
 import { randomSeed } from './core/rng';
 import { garbageTargets } from './core/targeting';
 import { Color, COLORS } from './core/types';
-import { GamepadInput, NavDir } from './input/gamepad';
-import { Action, KeyboardInput } from './input/keyboard';
-import { LocalSeat, LocalSetup, CPU_NAMES, deviceLabel, seatNames } from './ui/local';
+import { GamepadInput } from './input/gamepad';
+import { KeyboardInput } from './input/keyboard';
 import { Rumble } from './input/rumble';
-import { TouchControls } from './input/touch';
-import { BOTTLE_SHOULDER_PX, boardPixelSize, drawBoard, drawGerm } from './render/draw';
-import { BoardEffects } from './render/effects';
-import { gameView } from './render/view';
-import {
-  BoardSnapshot, EMOTES, makeRoomCode, normalizeRoomCode, RoundResult, START_COUNTDOWN_MS, StartInfo,
-} from './net/protocol';
 import { CpuRunner } from './net/cpus';
+import { EMOTES, makeRoomCode, normalizeRoomCode, RoundResult, START_COUNTDOWN_MS, StartInfo } from './net/protocol';
 import { encodeSnapshot, snapshotView } from './net/snapshot';
 import { VoiceChat } from './net/voice';
+import { cpuRoundText, localRoundText, onlineRoundText } from './play/results';
+import { cpuHold, CpuSession, onlineHold, OnlineSession, Seat, Session, staleOpponent, yourGame } from './play/session';
+import { drawBoard } from './render/draw';
+import { BoardEffects } from './render/effects';
+import { gameView } from './render/view';
 import { ChatBox, isTyping, popEmote } from './ui/chat';
 import { $, loadSettings, saveSettings, Settings, SKILL_LABEL, SPEED_LABEL } from './ui/dom';
 import { PlayersHud } from './ui/hud';
+import { BoardLayout, LayoutOptions } from './ui/layout';
 import { ChatMessage, MatchMessage, OnlineRoom } from './ui/lobby';
+import { CPU_NAMES, deviceLabel, LocalSeat, LocalSetup, seatNames } from './ui/local';
+import { Mascots } from './ui/mascots';
 import { OpponentBoards } from './ui/opponents';
-import { ScreenKeyboard } from './ui/osk';
-import { blurUnlessPad, focusables, moveFocus, stepRange, usingPad } from './ui/padnav';
+import { Overlay } from './ui/overlay';
+import { PadMenus } from './ui/padmenu';
+import { showToast, TopBar } from './ui/topbar';
+import { TouchUi } from './ui/touch-ui';
 import { VoiceBar } from './ui/voice';
 
 const canvas = $<HTMLCanvasElement>('#board');
@@ -43,86 +44,26 @@ keyboard.attach();
 
 const pad = new GamepadInput(keyboard, {
   onPause: () => togglePause(),
-  onConfirm: (button, index) => padConfirm(button, index),
-  onBack: () => padBack(),
+  onConfirm: (button, index) => padMenus.confirm(button, index),
+  onBack: () => padMenus.back(),
   onMute: () => voice.toggleMute(),
-  onNavigate: dir => padNavigate(dir),
-  onChange: () => renderPadUi(),
+  onNavigate: dir => padMenus.navigate(dir),
+  onChange: () => topBar.renderPad(),
 });
 const rumble = new Rumble(pad);
-const rumbleButton = $<HTMLButtonElement>('#toggle-rumble');
-rumbleButton.addEventListener('click', () => { rumble.toggle(); renderPadUi(); blurUnlessPad(rumbleButton); });
-function renderPadUi(): void {
-  const connected = pad.connected;
-  rumbleButton.classList.toggle('hidden', !connected);
-  setLabel(rumbleButton, '🎮', 'Rumble');
-  rumbleButton.classList.toggle('off', !rumble.on);
-  $('#pad-hint').classList.toggle('hidden', !connected);
-}
 const youFx = new BoardEffects();
 
-/** A seat in a match on this computer: a person with their own input, or a CPU. */
-type Seat =
-  | { kind: 'person'; input: KeyboardInput; rumble: Rumble }
-  | { kind: 'cpu'; ai: CpuController; skill: CpuSkillName };
-
-/** What's being played right now. */
-type Session =
-  | { kind: 'solo'; game: Game }
-  // Vs CPU and local matches. startAt = end of the 3-2-1 countdown before each round.
-  | { kind: 'cpu'; match: Match; seats: Seat[]; startAt: number; local: boolean }
-  | OnlineSession;
-
-/** An opponent in an online round: their latest board snapshot and whether they're knocked out. */
-interface OnlineOpponent {
-  id: string;
-  name: string;
-  /** A CPU that this browser plays (its board comes from our worker, not the server). */
-  mine: boolean;
-  snap: BoardSnapshot | null;
-  /** When we last heard from them. */
-  at: number;
-  out: boolean;
-}
-
-/** An online round: your board runs here; the opponents' (1–3) arrive as snapshots. */
-interface OnlineSession {
-  kind: 'online';
-  game: Game;
-  info: StartInfo;
-  /** Opponents in seating order. */
-  opps: OnlineOpponent[];
-  /** Play (re)starts at this time: after the start countdown, a pause or a reconnect. */
-  startAt: number;
-  /** Shared pause: who paused (null if not paused). */
-  pausedBy: string | null;
-  /** An opponent's connection dropped: they have until `until` to come back. */
-  away: { name: string; until: number } | null;
-  /** The round's result from the server, once decided. */
-  result: RoundResult | null;
-  resultSent: boolean;
-  lastSent: { json: string; at: number };
-}
-
-/**
- * No word from the opponent for this long: pause both boards ("Connection problem…").
- * Background tabs only get timers about once a second, so keep this well above that.
- */
-const STALE_MS = 3500;
 /** Send your board at least this often, even if nothing changed (doubles as a heartbeat). */
 const SNAPSHOT_KEEPALIVE_MS = 500;
 
-let settings: Settings = loadSettings();
+const settings: Settings = loadSettings();
 let session: Session | null = null;
 let paused = false;
 let acc = 0;
 let lastTime = performance.now();
 
 /** Your own board in the current session. */
-function you(): Game | null {
-  if (!session) return null;
-  return session.kind === 'cpu' ? session.match.games[0] : session.game;
-}
+const you = () => yourGame(session);
 
 /** True while boards should be advancing. */
 function running(): boolean {
@@ -130,34 +71,11 @@ function running(): boolean {
   switch (session.kind) {
     case 'solo': return !session.game.isOver;
     case 'cpu': return session.match.state === 'playing' && performance.now() >= session.startAt;
-    case 'online': return onlineHold(session, performance.now()) === null;
+    case 'online': return onlineHold(session, performance.now(), room.connected) === null;
   }
 }
 
-/** Why an online round isn't advancing right now, or null if it is. */
-function onlineHold(s: OnlineSession, now: number): 'result' | 'over' | 'reconnecting' | 'away' | 'paused' | 'stale' | 'countdown' | null {
-  if (s.result) return 'result';
-  if (s.game.isOver) return 'over';
-  if (!room.connected) return 'reconnecting';
-  if (s.away) return 'away';
-  if (s.pausedBy) return 'paused';
-  if (staleOpponent(s, now)) return 'stale';
-  if (now < s.startAt) return 'countdown';
-  return null;
-}
-
-/**
- * The CPUs this browser plays wait while the round is held for everyone (paused, someone away
- * or quiet, round decided), but keep playing if your own board is over.
- */
-function cpuHold(s: OnlineSession, now: number): boolean {
-  return !!s.result || !room.connected || !!s.away || !!s.pausedBy || !!staleOpponent(s, now);
-}
-
-/** An opponent still in the round that we haven't heard from for a while (null if none). */
-function staleOpponent(s: OnlineSession, now: number): OnlineOpponent | null {
-  return s.opps.find(o => !o.out && now - o.at > STALE_MS) ?? null;
-}
+const overlay = new Overlay(running);
 
 // --- CPU players in online rooms: each browser plays the ones the server gives it ---
 
@@ -214,7 +132,6 @@ audio.onChange(() => voice.setVolume(audio.volume.voice));
 window.addEventListener('keydown', e => {
   if (e.code === 'KeyV' && !e.repeat && !isTyping(e) && voice.status === 'on') voice.toggleMute();
 });
-const overlayEl = $('#overlay');
 
 function onChat(msg: ChatMessage): void {
   if (msg.t === 'chatLog') return chat.setHistory(msg.lines);
@@ -244,8 +161,7 @@ function updateChat(): void {
   const inLobby = !lobbyScreen.classList.contains('hidden');
   const online = session?.kind === 'online';
   chat.show(inLobby || online);
-  chat.setEnabled(inLobby || (online && (overlayKey === 'result' || overlayKey === 'paused')
-    && !overlayEl.classList.contains('hidden')));
+  chat.setEnabled(inLobby || (online && (overlay.key === 'result' || overlay.key === 'paused') && overlay.visible));
 }
 
 // T starts typing; 1–8 send an emote.
@@ -260,143 +176,14 @@ window.addEventListener('keydown', e => {
   if (n >= 1 && n <= EMOTES.length) chat.emote(n - 1);
 });
 
-// --- Audio: unlocked by the first key press or click (browser rule) ---
+// --- Audio (unlocked by the first key press or click, a browser rule), top bar, touch controls ---
 
 window.addEventListener('keydown', () => audio.unlock(), { capture: true });
 window.addEventListener('pointerdown', () => audio.unlock(), { capture: true });
 
-const muteButton = $<HTMLButtonElement>('#toggle-mute');
-const musicButton = $<HTMLButtonElement>('#toggle-music');
-/** A top-bar button's icon and word (the word is hidden on narrow screens). */
-function setLabel(b: HTMLElement, icon: string, text: string): void {
-  const ico = document.createElement('span');
-  ico.className = 'ico';
-  ico.textContent = icon;
-  const txt = document.createElement('span');
-  txt.className = 'txt';
-  txt.textContent = ` ${text}`;
-  b.replaceChildren(ico, txt);
-}
-
-function renderAudioToggles(): void {
-  setLabel(muteButton, audio.muted ? '🔇' : '🔊', 'Sound');
-  muteButton.classList.toggle('off', audio.muted);
-  setLabel(musicButton, '♪', 'Music');
-  musicButton.classList.toggle('off', !audio.musicOn);
-}
-muteButton.addEventListener('click', () => { audio.toggleMute(); blurUnlessPad(muteButton); });
-musicButton.addEventListener('click', () => { audio.toggleMusic(); blurUnlessPad(musicButton); });
-window.addEventListener('keydown', e => {
-  if (e.code === 'KeyM' && !e.repeat && !isTyping(e)) audio.toggleMute();
-});
-audio.onChange(renderAudioToggles);
-renderAudioToggles();
-
-// Volume sliders (music, sound effects, voice chat), in a panel under the audio buttons.
-const volumePanel = $('#volume-panel');
-const volumeInputs = [...volumePanel.querySelectorAll<HTMLInputElement>('input[data-volume]')];
-function renderVolumes(): void {
-  for (const input of volumeInputs) {
-    const pct = Math.round(audio.volume[input.dataset.volume as VolumeKind] * 100);
-    if (document.activeElement !== input) input.value = String(pct);
-    (input.nextElementSibling as HTMLOutputElement).value = `${pct}%`;
-  }
-}
-for (const input of volumeInputs) {
-  input.addEventListener('input', () => audio.setVolume(input.dataset.volume as VolumeKind, Number(input.value) / 100));
-  input.addEventListener('change', () => blurUnlessPad(input)); // give the arrow keys back to the game
-}
-const volumeButton = $<HTMLButtonElement>('#toggle-volume');
-volumeButton.addEventListener('click', () => {
-  volumePanel.classList.toggle('hidden');
-  renderVolumes();
-  if (usingPad() && !volumePanel.classList.contains('hidden')) volumeInputs[0].focus(); // straight to the sliders
-  else blurUnlessPad(volumeButton);
-});
-document.addEventListener('pointerdown', e => {
-  if (!(e.target as Element).closest('.audio-toggles')) volumePanel.classList.add('hidden');
-});
-audio.onChange(renderVolumes);
-
-// --- Touch controls: opt-in (a switch in the top bar on touchscreens), never assumed ---
-// Off → on-screen buttons → swipe gestures → off.
-
-const touchButton = $<HTMLButtonElement>('#toggle-touch');
-const touchPause = $<HTMLButtonElement>('#touch-pause');
-const touchPad = $('#touch-pad');
-const TOUCH_NEXT = { off: 'buttons', buttons: 'swipe', swipe: 'off' } as const;
-const TOUCH_LABEL = { off: 'Touch: off', buttons: 'Touch: buttons', swipe: 'Touch: swipe' } as const;
-function renderTouchUi(): void {
-  touchButton.classList.toggle('hidden', navigator.maxTouchPoints === 0);
-  setLabel(touchButton, settings.touch === 'buttons' ? '🔘' : '👆', TOUCH_LABEL[settings.touch]);
-  touchButton.classList.toggle('off', settings.touch === 'off');
-  $('#touch-hint').classList.toggle('hidden', settings.touch === 'off');
-  $('#touch-hint-text').textContent = settings.touch === 'buttons'
-    ? '🔘 Touch buttons: ◀ ▶ move (hold to repeat) · ▼ drop (hold) · ↺ ↻ rotate · ⏸ pause'
-    : '👆 Touch: drag sideways to move · tap to rotate (left side ↺, right side ↻) · drag down and hold to drop · ⏸ pause';
-}
-touchButton.addEventListener('click', () => {
-  settings.touch = TOUCH_NEXT[settings.touch];
-  saveSettings(settings);
-  renderTouchUi();
-  showToast(TOUCH_LABEL[settings.touch]);
-  blurUnlessPad(touchButton);
-});
-
-/** A short message at the top of the screen. */
-let toastTimer: ReturnType<typeof setTimeout> | undefined;
-function showToast(text: string): void {
-  const el = $('#toast');
-  el.textContent = text;
-  el.classList.remove('hidden');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.add('hidden'), 1500);
-}
-
-// Touch buttons: held like keys (◀ ▶ repeat after a moment, ▼ drops while held), several at once.
-for (const b of touchPad.querySelectorAll<HTMLButtonElement>('.tbtn')) {
-  const action = b.dataset.action as Action;
-  b.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    b.setPointerCapture(e.pointerId);
-    b.classList.add('down');
-    keyboard.press(action);
-  });
-  const up = () => {
-    if (!b.classList.contains('down')) return;
-    b.classList.remove('down');
-    keyboard.release(action);
-  };
-  b.addEventListener('pointerup', up);
-  b.addEventListener('pointercancel', up);
-  b.addEventListener('lostpointercapture', up);
-  b.addEventListener('contextmenu', e => e.preventDefault());
-}
-touchPause.addEventListener('click', () => { togglePause(); touchPause.blur(); });
-renderTouchUi();
-// Gestures drive the keyboard player (in a local match: whoever joined with the keyboard).
-new TouchControls({
-  nudge: dir => keyboard.nudge(dir),
-  hold: dir => keyboard.setTouchHold(dir),
-  softDrop: on => (on ? keyboard.press('softDrop') : keyboard.release('softDrop')),
-  rotate: dir => {
-    const action = dir === 'cw' ? 'rotateCW' : 'rotateCCW';
-    keyboard.press(action);
-    keyboard.release(action);
-  },
-}, () => (canvas.clientWidth / canvas.width) * CELL_PX || 24, () => settings.touch === 'swipe' && running());
-
-/** Every frame: the pause button, the touch buttons and "no scrolling" only while touch controls are on in a game. */
-function updateTouchUi(): void {
-  const on = settings.touch !== 'off' && session !== null;
-  if (touchPause.classList.contains('hidden') === on) touchPause.classList.toggle('hidden', !on);
-  const pad = settings.touch === 'buttons' && session !== null;
-  if (touchPad.classList.contains('hidden') === pad) touchPad.classList.toggle('hidden', !pad);
-  document.body.classList.toggle('touch-play', on);
-}
-
-/** A reminder of the gestures on the countdown (swipe controls on). */
-const touchTip = () => (settings.touch === 'swipe' ? ' · drag to move, tap to rotate' : '');
+const topBar = new TopBar(pad, rumble);
+const touchUi = new TouchUi(settings, keyboard, canvas, { onPause: () => togglePause(), live: running });
+const layout = new BoardLayout(canvas, opponents, touchUi.pad, () => chat.reservedWidth);
 
 // --- Menu ---
 
@@ -470,7 +257,7 @@ function showMenu(): void {
   localSetup.hide();
   keyboard.enabled = false;
   audio.stopMusic();
-  hideOverlay();
+  overlay.hide();
   $('#play').classList.add('hidden');
   $('#lobby').classList.add('hidden');
   $('#menu').classList.remove('hidden');
@@ -489,7 +276,7 @@ function enterPlay(): void {
   keyboard.enabled = true;
   resetInputs();
   audio.startMusic();
-  hideOverlay();
+  overlay.hide();
   $('#menu').classList.add('hidden');
   $('#lobby').classList.add('hidden');
   localSetup.hide();
@@ -552,7 +339,7 @@ function startCpuMatch(): void {
     seats: [{ kind: 'person', input: keyboard, rumble }, ...Array.from({ length: count }, () => newCpu(settings.cpuSkill))],
   };
   routePads(null);
-  overlayKey = '';
+  overlay.key = '';
   const names = count === 1 ? ['CPU'] : CPU_NAMES.slice(0, count);
   const detail = `${SKILL_LABEL[settings.cpuSkill]} · Lv ${settings.cpuLevel}`;
   setupPlayers(['You', ...names], names.map(n => (count === 1 ? `CPU · ${detail}` : `${n} · ${detail}`)));
@@ -598,7 +385,7 @@ function startLocal(lineup: LocalSeat[]): void {
   });
   session = { kind: 'cpu', match, seats, local: true, startAt: performance.now() + START_COUNTDOWN_MS };
   routePads(pads);
-  overlayKey = '';
+  overlay.key = '';
   const label = (s: LocalSeat, i: number) => `${names[i]} · ${deviceLabel(s)} · Lv ${s.level} · ${SPEED_LABEL[s.speed]}`;
   setupPlayers(names, lineup.slice(1).map((s, k) => label(s, k + 1)));
   $('#board-label').textContent = label(lineup[0], 0);
@@ -612,6 +399,8 @@ function setupPlayers(names: string[], boardLabels: string[]): void {
   hud.setPlayers(names);
   opponents.setup(boardLabels);
 }
+
+// --- Online rounds ---
 
 /** A round starts (the first from the lobby, later ones automatically): your board on the shared seed. */
 function startOnline(info: StartInfo): void {
@@ -640,13 +429,8 @@ function startOnline(info: StartInfo): void {
   })), session.startAt);
   $('#hud-fast').classList.toggle('hidden', !info.settings.fastGarbage);
   $('#hud-outbreak').classList.toggle('hidden', !(info.settings.outbreak && others.length >= 2));
-  overlayKey = '';
+  overlay.key = '';
   enterPlay();
-}
-
-/** "You" or a player's name. */
-function onlineName(s: OnlineSession, id: string): string {
-  return id === room.me ? 'You' : s.opps.find(o => o.id === id)?.name ?? 'Someone';
 }
 
 function onMatchMessage(msg: MatchMessage): void {
@@ -705,45 +489,26 @@ function onMatchMessage(msg: MatchMessage): void {
 function onOnlineRound(s: OnlineSession, r: RoundResult): void {
   s.result = r;
   cpuRunner.sync(true, s.startAt);
-  hideOverlay(); // leave the boards visible for a moment before the result
-  overlayKey = 'result';
+  overlay.hide(); // leave the boards visible for a moment before the result
+  overlay.key = 'result';
   audio.stopMusic();
   if (r.winner) {
     audio.jingle(r.winner === room.me ? 'win' : 'lose');
     rumble.roundEnd(r.winner === room.me);
   }
-
-  const who = (id: string) => onlineName(s, id);
-  const mine = r.by === room.me;
-  const why =
-    r.reason === 'cleared' ? `${who(r.by)} cleared ${mine ? 'your' : 'their'} bottle` :
-    r.reason === 'toppedOut' ? `${who(r.by)} topped out` :
-    r.reason === 'forfeit' ? `${who(r.by)} left the round` :
-    r.reason === 'lastStanding' ? (mine ? "You're the last one standing" : `${who(r.by)} is the last one standing`) :
-    `${who(r.by)} disconnected`;
-  const score = s.opps.length === 1
-    ? `You ${r.wins[room.me] ?? 0} – ${r.wins[s.opps[0].id] ?? 0} ${s.opps[0].name}`
-    : [room.me, ...s.opps.map(o => o.id)].map(id => `${who(id)} ${r.wins[id] ?? 0}`).join(' · ');
-  const iWon = r.winner === room.me;
-  const winnerName = r.winner ? who(r.winner) : '';
-  if (r.matchOver) {
-    showOverlayLater(ROUND_END_LINGER_MS, iWon ? 'You win the match!' : r.winner ? `${winnerName} wins the match` : 'Match over', `${why}. ${score}`, [
-      ['Play again', () => playAgainOnline(s)],
-      ['Back to lobby', leaveOnlineMatch],
-      ['Leave room', () => room.leave()],
-    ]);
-  } else {
-    const round = s.info.round;
-    const title = !r.winner ? 'Draw!' : iWon ? `You take round ${round}` : `${winnerName} takes round ${round}`;
-    showOverlayLater(ROUND_END_LINGER_MS, title, `${why}. ${score}. Next round coming up…`, []);
-  }
+  const { title, sub } = onlineRoundText(r, room.me, s.opps, s.info.round);
+  overlay.showLater(ROUND_END_LINGER_MS, title, sub, r.matchOver ? [
+    ['Play again', () => playAgainOnline(s)],
+    ['Back to lobby', leaveOnlineMatch],
+    ['Leave room', () => room.leave()],
+  ] : []);
 }
 
 /** Ready for another match with the same settings; it starts once everyone agrees. */
 function playAgainOnline(s: OnlineSession): void {
   room.send({ t: 'playAgain' });
   const waitingFor = s.opps.length === 1 ? s.opps[0].name : 'the others';
-  showOverlay('Play again', `Waiting for ${waitingFor}…`, [['Back to lobby', leaveOnlineMatch]]);
+  overlay.show('Play again', `Waiting for ${waitingFor}…`, [['Back to lobby', leaveOnlineMatch]]);
 }
 
 function leaveOnlineMatch(): void {
@@ -791,57 +556,44 @@ setInterval(() => {
   if (session?.kind !== 'online') return;
   const now = performance.now();
   sendBoard(session, now);
-  cpuRunner.sync(cpuHold(session, now), session.startAt);
+  cpuRunner.sync(cpuHold(session, now, room.connected), session.startAt);
 }, SNAPSHOT_KEEPALIVE_MS);
 
 /** Once per frame during an online round: send your board, and show the right overlay. */
 function updateOnline(s: OnlineSession, now: number): void {
   sendBoard(s, now);
-  cpuRunner.sync(cpuHold(s, now), s.startAt);
+  cpuRunner.sync(cpuHold(s, now, room.connected), s.startAt);
 
-  const hold = onlineHold(s, now);
+  const hold = onlineHold(s, now, room.connected);
   if (hold === 'result') return; // result overlay is already up
   const secs = (t: number) => String(Math.max(0, Math.ceil((t - now) / 1000)));
   switch (hold) {
     case 'over':
       if (s.game.phase === 'lost' && s.opps.filter(o => !o.out).length > 1) {
-        return setOverlayState('over', "You're out", 'Watching the others finish the round…', []);
+        return overlay.setState('over', "You're out", 'Watching the others finish the round…', []);
       }
-      return setOverlayState('over', s.game.phase === 'won' ? 'Bottle clean!' : 'Topped out', 'Waiting for the result…', []);
+      return overlay.setState('over', s.game.phase === 'won' ? 'Bottle clean!' : 'Topped out', 'Waiting for the result…', []);
     case 'reconnecting':
-      return setOverlayState('reconnecting', 'Reconnecting…', 'Your connection dropped. Hang on…', []);
+      return overlay.setState('reconnecting', 'Reconnecting…', 'Your connection dropped. Hang on…', []);
     case 'away':
-      return setOverlayState('away', `${s.away!.name} disconnected`, `${s.away!.name} has ${secs(s.away!.until)} s to come back`, []);
+      return overlay.setState('away', `${s.away!.name} disconnected`, `${s.away!.name} has ${secs(s.away!.until)} s to come back`, []);
     case 'paused':
-      return setOverlayState('paused', 'Paused', `Paused by ${s.pausedBy}. Anyone can resume.`, [
+      return overlay.setState('paused', 'Paused', `Paused by ${s.pausedBy}. Anyone can resume.`, [
         ['Resume', () => room.send({ t: 'pause', paused: false })],
         ['Leave room', () => room.leave()],
       ]);
     case 'stale':
-      return setOverlayState('stale', 'Connection problem…', `Waiting to hear from ${staleOpponent(s, now)?.name ?? 'the others'}`, []);
+      return overlay.setState('stale', 'Connection problem…', `Waiting to hear from ${staleOpponent(s, now)?.name ?? 'the others'}`, []);
     case 'countdown': {
       const vs = s.opps.length === 1 ? `vs ${s.opps[0].name}` : `vs ${s.opps.map(o => o.name).join(', ')}`;
-      return setOverlayState('countdown', secs(s.startAt), (s.info.round > 1 ? `Round ${s.info.round}` : vs) + touchTip(), []);
+      return overlay.setState('countdown', secs(s.startAt), (s.info.round > 1 ? `Round ${s.info.round}` : vs) + touchUi.tip, []);
     }
     default:
-      if (overlayKey) {
-        overlayKey = '';
-        hideOverlay();
-      }
+      overlay.clearState();
   }
 }
 
-/** Show an overlay unless that kind is already showing; same kind just updates its text. */
-let overlayKey = '';
-function setOverlayState(key: string, title: string, sub: string, buttons: [string, () => void][]): void {
-  if (overlayKey === key) {
-    setText('#overlay-title', title);
-    setText('#overlay-sub', sub);
-    return;
-  }
-  overlayKey = key;
-  showOverlay(title, sub, buttons);
-}
+// --- Vs CPU and local rounds ---
 
 function nextRound(): void {
   if (session?.kind !== 'cpu') return;
@@ -856,139 +608,33 @@ function nextRound(): void {
   audio.startMusic();
   lastMusicRate = 1;
   $('#hud-speed').textContent = SPEED_LABEL[settings.speed];
-  overlayKey = '';
-  hideOverlay();
+  overlay.key = '';
+  overlay.hide();
 }
 
-/** Vs CPU: show 3-2-1 before each round, then get out of the way. */
-function updateCpuCountdown(s: Extract<Session, { kind: 'cpu' }>, now: number): void {
+/** Show 3-2-1 before each round, then get out of the way. */
+function updateCpuCountdown(s: CpuSession, now: number): void {
   if (s.match.state !== 'playing' || paused) return;
   if (now < s.startAt) {
     const n = s.seats.length - 1;
     const vs = s.local ? hud.playerNames.join(' vs ') : n === 1 ? 'vs CPU' : `vs ${n} CPUs`;
-    setOverlayState('countdown', String(Math.ceil((s.startAt - now) / 1000)), (s.match.round > 1 ? `Round ${s.match.round}` : vs) + touchTip(), []);
-  } else if (overlayKey === 'countdown') {
-    overlayKey = '';
-    hideOverlay();
+    overlay.setState('countdown', String(Math.ceil((s.startAt - now) / 1000)), (s.match.round > 1 ? `Round ${s.match.round}` : vs) + touchUi.tip, []);
+  } else {
+    overlay.clearState('countdown');
   }
 }
 
-/**
- * Scale your board to fill the window height, leaving room for the HUD and the opponents'
- * bottles (full size against one opponent, smaller against two or three).
- */
+// --- Board sizes ---
+
+function layoutOptions(): LayoutOptions {
+  return { pad: touchUi.buttonsShown(session !== null), local: session?.kind === 'cpu' && session.local };
+}
+
 function sizeCanvases(): void {
-  const { w: viewW, h: viewH } = viewSize();
-  sizedFor = sizeKey();
-  const { width, height } = boardPixelSize(8, 16);
-  // Room for the touch buttons: along the bottom, or (landscape phones) down the sides.
-  const pad = settings.touch === 'buttons' && session !== null;
-  updateTouchUi(); // show or hide them first, so they can be measured
-  const n = opponents.count;
-  // Local matches: everyone's bottle is the same size.
-  const local = session?.kind === 'cpu' && session.local;
-  const oppScale = n <= 1 || local ? OPPONENT_BOARD_SCALE : n === 2 ? 0.6 : 0.5;
-  const setSizes = (yours: number, theirs: number) => {
-    canvas.width = width;
-    canvas.height = height;
-    canvas.style.width = `${Math.round(width * yours)}px`;
-    canvas.style.height = `${Math.round(height * yours)}px`;
-    ctx.imageSmoothingEnabled = false;
-    opponents.size(theirs);
-  };
-
-  // Phones: your bottle between the stats columns. Portrait puts the others in a row below,
-  // landscape (a short screen) puts them to the right.
-  const portrait = viewW <= 520;
-  const landscape = !portrait && viewH <= 520;
-  const play = $('#play');
-  play.classList.toggle('compact', portrait || landscape);
-  play.classList.toggle('portrait', portrait);
-  play.classList.toggle('landscape', landscape);
-  play.classList.toggle('buttons', pad);
-  touchPad.classList.toggle('sides', landscape);
-  // The whole panel's height, including its padding for the iPhone home bar (safe area), plus a little gap.
-  const padH = pad && !landscape ? touchPad.offsetHeight + 8 : 0;
-  const padW = pad && landscape ? touchPad.querySelector<HTMLElement>('.cluster')!.offsetWidth + 24 : 0;
-  play.style.setProperty('--pad-h', `${padH}px`);
-  play.style.setProperty('--pad-w', `${padW}px`);
-  const left = $('.hud-left').offsetWidth;
-  const right = $('.hud-right').offsetWidth;
-  if (portrait || landscape) {
-    const availW = viewW - chat.reservedWidth - 2 * padW;
-    let yours: number;
-    let theirs: number;
-    if (portrait) {
-      // Equal side columns (so your bottle is centred): room for the wider one twice.
-      const side = Math.min(240, 2 * Math.max(left, right) + 20);
-      yours = (availW - 32 - side - 6) / width; // a few px spare for rounding
-      theirs = n ? Math.min(yours * (local ? 1 : oppScale), (availW - 32 - (n - 1) * 8 - 6) / (n * width)) : 0;
-      // Both rows have to fit the height too (minus padding and the name labels).
-      const availH = viewH - (pad ? 52 : 64) - 36 - (local ? 22 : 0) - (n ? 34 : 0) - padH;
-      const shrink = availH / (yours * height + theirs * height);
-      if (shrink < 1) { yours *= shrink; theirs *= shrink; }
-    } else {
-      // One row, as tall as the screen allows (minus padding and the name labels below).
-      // The others use whatever width is left, up to the size of yours.
-      yours = (viewH - 52 - 12 - 30) / height;
-      const room = availW - 24 - left - right - 12 * 3 - Math.max(0, n - 1) * 10 - 6;
-      theirs = n ? Math.min(yours, (room - yours * width) / (n * width)) : 0;
-      if (n && theirs < yours * oppScale) {
-        // Not even room for the usual smaller size: shrink everything to fit.
-        theirs = yours * oppScale;
-        const shrink = room / (yours * width + n * theirs * width);
-        yours *= shrink;
-        theirs *= shrink;
-      }
-    }
-    yours = Math.max(0.5, yours);
-    // The side columns start level with your bottle's shoulders, not the preview above them.
-    play.style.setProperty('--shoulder', `${Math.round(BOTTLE_SHOULDER_PX * yours)}px`);
-    setSizes(yours, Math.max(0.3, theirs));
-    // Safety check (portrait with buttons): browsers don't all agree on how much of the screen is
-    // visible, so measure where things ended up and shrink until your bottle clears the buttons.
-    if (pad && portrait) {
-      for (let tries = 0; tries < 10; tries++) {
-        const buttonsTop = Math.min(...[...touchPad.querySelectorAll<HTMLElement>('.cluster')].map(c => c.getBoundingClientRect().top));
-        const over = canvas.getBoundingClientRect().bottom + 10 - buttonsTop;
-        if (over <= 0) break;
-        // Shrink both rows by about the overlap and measure again. The bottle's bottom moves up by
-        // somewhere between half (page centred) and all of that, so this never overshoots.
-        const k = Math.max(0.7, 1 - over / (yours * height + theirs * height));
-        yours *= k;
-        theirs *= k;
-        play.style.setProperty('--shoulder', `${Math.round(BOTTLE_SHOULDER_PX * yours)}px`);
-        setSizes(yours, Math.max(0.3, theirs));
-      }
-    }
-    return;
-  }
-
-  const availW = viewW - 260 - n * 32 - chat.reservedWidth;
-  // Leave room for the page padding, and in versus for the opponents' names under their bottles.
-  const availH = viewH - 56 - (n ? 32 : 0) - padH;
-  // The canvases stay at sprite resolution; CSS scales them up with crisp (pixelated) edges.
-  // Whole-number scales keep every pixel the same size, so prefer one when it's close.
-  const fit = Math.max(1, Math.min(availW / (width * (1 + n * oppScale)), availH / height));
-  const scale = fit - Math.floor(fit) < 0.35 ? Math.floor(fit) : fit;
-  setSizes(scale, scale * oppScale);
+  touchUi.update(session !== null); // show or hide the touch buttons first, so they can be measured
+  layout.size(layoutOptions());
 }
 window.addEventListener('resize', () => { if (session) sizeCanvases(); });
-/** The page size the boards were last sized for. Phones don't always send a resize event (e.g. while a page is still settling), so frame() checks this too. */
-let sizedFor = '';
-/** What the board sizes depend on besides the opponents: the page size and the touch buttons' room (if showing). */
-const sizeKey = () => `${viewSize().w}x${viewSize().h}:${
-  settings.touch === 'buttons' && session !== null ? touchPad.offsetHeight : 'no buttons'}`;
-
-/**
- * The part of the page you can see. The layout size (unlike innerWidth/innerHeight) isn't changed
- * by pinch-zooming, but some phone browsers count the space behind their bottom toolbar in it, so
- * the height is whichever is smaller.
- */
-function viewSize(): { w: number; h: number } {
-  const el = document.documentElement;
-  return { w: el.clientWidth, h: Math.min(el.clientHeight, window.innerHeight || el.clientHeight) };
-}
 
 // --- Events and results ---
 
@@ -1015,10 +661,7 @@ function flashSpeed(step: number): void {
   el.classList.add('flash');
 }
 
-/**
- * Music tempo follows the game: a bit faster with every speed-up, and an extra push once any
- * board in play is down to its last few germs. Called every frame; only changes when needed.
- */
+/** Music tempo follows the game (see musicRate). Called every frame; only changes when needed. */
 let lastMusicRate = 1;
 function updateMusicRate(): void {
   const me = you();
@@ -1026,29 +669,10 @@ function updateMusicRate(): void {
   const others =
     session.kind === 'cpu' ? session.match.games.slice(1).filter(g => g.phase !== 'lost').map(g => g.germsLeft) :
     session.kind === 'online' ? session.opps.filter(o => !o.out && o.snap).map(o => o.snap!.g) : [];
-  const endgame = [me.germsLeft, ...others].some(g => g > 0 && g <= ENDGAME_GERMS);
-  const rate = Math.min(MUSIC_MAX_RATE, 1 + MUSIC_SPEEDUP_PER_STEP * me.speedStep) + (endgame ? ENDGAME_MUSIC_BOOST : 0);
+  const rate = musicRate(me.speedStep, [me.germsLeft, ...others]);
   if (Math.abs(rate - lastMusicRate) > 0.001) {
     lastMusicRate = rate;
     audio.setMusicRate(rate);
-  }
-}
-
-function playSound(e: GameEvent): void {
-  switch (e.type) {
-    case 'move': return audio.play('move');
-    case 'rotate': return audio.play('rotate');
-    case 'lock': return audio.play('lock');
-    case 'clear': {
-      const up = (e.chain - 1) * 3; // rises 3 semitones per chain step
-      audio.play('clear', up, 0);
-      if (e.germs > 0) audio.play('germ', up);
-      if (e.chain >= 2) audio.play('chain', up, 0);
-      return;
-    }
-    case 'garbageOut': return audio.play('attack');
-    case 'garbageIn': return audio.play('incoming');
-    case 'garbageLanded': return audio.play('thud');
   }
 }
 
@@ -1061,88 +685,74 @@ function onSoloOver(game: Game): void {
     const buttons: [string, () => void][] = [];
     if (lvl < MAX_LEVEL) buttons.push([`Level ${lvl + 1}`, () => startSolo(lvl + 1)]);
     buttons.push(['Play again', () => startSolo(lvl)], ['Menu', showMenu]);
-    showOverlayLater(ROUND_END_LINGER_MS, 'Bottle clean!', `Level ${lvl} cleared`, buttons);
+    overlay.showLater(ROUND_END_LINGER_MS, 'Bottle clean!', `Level ${lvl} cleared`, buttons);
   } else {
     audio.jingle('lose');
-    showOverlayLater(ROUND_END_LINGER_MS, 'Topped out', `${game.germsLeft} germs left`, [['Retry', () => startSolo(lvl)], ['Menu', showMenu]]);
+    overlay.showLater(ROUND_END_LINGER_MS, 'Topped out', `${game.germsLeft} germs left`, [['Retry', () => startSolo(lvl)], ['Menu', showMenu]]);
   }
 }
 
 function onRoundOver(match: Match): void {
   audio.stopMusic();
   if (session?.kind === 'cpu' && session.local) return onLocalRoundOver(match, session.seats);
-  const names = hud.playerNames;
-  const n = match.playerCount;
-  /** "You", "The CPU" (one opponent) or the CPU's name. */
-  const who = (i: number) => (i === 0 ? 'You' : n === 2 ? 'The CPU' : names[i]);
   const w = match.roundWinner;
-  const why =
-    w === null ? 'Nobody made it' :
-    match.games[w].phase === 'won' ? `${who(w)} cleared ${w === 0 ? 'your' : n === 2 ? 'its' : 'their'} bottle` :
-    n === 2 ? `${who(1 - w)} topped out` :
-    w === 0 ? "You're the last one standing" : `${who(w)} is the last one standing`;
-  const score = n === 2
-    ? `You ${match.wins[0]} – ${match.wins[1]} CPU`
-    : names.map((name, i) => `${name} ${match.wins[i]}`).join(' · ');
   if (w !== null) {
     audio.jingle(w === 0 ? 'win' : 'lose');
     rumble.roundEnd(w === 0);
   }
-
-  if (match.state === 'matchOver') {
-    const mw = match.matchWinner!;
-    const title = mw === 0 ? 'You win the match!' : `${who(mw)} wins the match`;
-    showOverlayLater(ROUND_END_LINGER_MS, title, `${why}. ${score}`, [['Play again', startCpuMatch], ['Menu', showMenu]]);
-  } else {
-    const title =
-      w === null ? 'Draw!' :
-      w === 0 ? `You take round ${match.round}` :
-      `${n === 2 ? 'CPU' : names[w]} takes round ${match.round}`;
-    showOverlayLater(ROUND_END_LINGER_MS, title, w === null ? score : `${why}. ${score}`, [['Next round', nextRound], ['Menu', showMenu]]);
-  }
+  const { title, sub } = cpuRoundText(match, hud.playerNames);
+  overlay.showLater(ROUND_END_LINGER_MS, title, sub, match.state === 'matchOver'
+    ? [['Play again', startCpuMatch], ['Menu', showMenu]]
+    : [['Next round', nextRound], ['Menu', showMenu]]);
 }
 
 /** A local match round ended: everyone on this screen is named (P1, P2, Spike…). */
 function onLocalRoundOver(match: Match, seats: Seat[]): void {
-  const names = hud.playerNames;
   const w = match.roundWinner;
-  const why =
-    w === null ? 'Nobody made it' :
-    match.games[w].phase === 'won' ? `${names[w]} cleared their bottle` :
-    match.playerCount === 2 ? `${names[1 - w]} topped out` :
-    `${names[w]} is the last one standing`;
-  const score = match.playerCount === 2
-    ? `${names[0]} ${match.wins[0]} – ${match.wins[1]} ${names[1]}`
-    : names.map((name, i) => `${name} ${match.wins[i]}`).join(' · ');
   if (w !== null) audio.jingle(seats[w].kind === 'person' ? 'win' : 'lose');
   seats.forEach((s, i) => { if (s.kind === 'person') s.rumble.roundEnd(i === w); });
-
-  if (match.state === 'matchOver') {
-    const mw = match.matchWinner!;
-    showOverlayLater(ROUND_END_LINGER_MS, `${names[mw]} wins the match!`, `${why}. ${score}`, [
-      ['Play again', () => startLocal(lastLocal)],
-      ['Change players', () => { session = null; audio.stopMusic(); localSetup.show(); }],
-      ['Menu', showMenu],
-    ]);
-  } else {
-    const title = w === null ? 'Draw!' : `${names[w]} takes round ${match.round}`;
-    showOverlayLater(ROUND_END_LINGER_MS, title, w === null ? score : `${why}. ${score}`, [['Next round', nextRound], ['Menu', showMenu]]);
-  }
+  const { title, sub } = localRoundText(match, hud.playerNames);
+  overlay.showLater(ROUND_END_LINGER_MS, title, sub, match.state === 'matchOver' ? [
+    ['Play again', () => startLocal(lastLocal)],
+    ['Change players', () => { session = null; audio.stopMusic(); localSetup.show(); }],
+    ['Menu', showMenu],
+  ] : [['Next round', nextRound], ['Menu', showMenu]]);
 }
+
+// --- Pause ---
+
+/** Why an online pause was refused, for the message. */
+const PAUSE_REFUSED = {
+  result: 'the round is over', over: 'your board is done', reconnecting: 'reconnecting',
+  away: 'waiting for a player', stale: 'connection problem',
+} as const;
 
 function togglePause(): void {
   if (session?.kind === 'online') {
     // Shared pause: the server tells both players; resuming has a countdown.
-    const hold = onlineHold(session, performance.now());
-    if (hold === null || hold === 'countdown' || hold === 'paused') room.send({ t: 'pause', paused: !session.pausedBy });
+    const s = session;
+    const hold = onlineHold(s, performance.now(), room.connected);
+    if (hold !== null && hold !== 'countdown' && hold !== 'paused') {
+      console.info(`[pause] not now: ${hold}`);
+      showToast(`Can't pause right now (${PAUSE_REFUSED[hold]})`);
+      return;
+    }
+    const wanted = !s.pausedBy;
+    room.send({ t: 'pause', paused: wanted });
+    // The pause only happens when the server passes it back to everyone; say so if it doesn't.
+    setTimeout(() => {
+      if (session !== s || !!s.pausedBy === wanted) return;
+      console.warn(`[pause] no answer from the room (connected: ${room.connected})`);
+      showToast(wanted ? "Pause didn't go through" : "Resume didn't go through");
+    }, 2000);
     return;
   }
   if (!running() && !paused) return;
   paused = !paused;
   audio.setMusicPaused(paused);
   resetInputs();
-  if (paused) showOverlay('Paused', settings.touch !== 'off' ? 'Tap Resume to keep playing' : 'Press P to resume', [['Resume', togglePause], ['Quit to menu', showMenu]]);
-  else hideOverlay();
+  if (paused) overlay.show('Paused', settings.touch !== 'off' ? 'Tap Resume to keep playing' : 'Press P to resume', [['Resume', togglePause], ['Quit to menu', showMenu]]);
+  else overlay.hide();
 }
 
 window.addEventListener('keydown', e => {
@@ -1163,165 +773,15 @@ window.addEventListener('keydown', e => {
 
 // --- Getting around menus with a controller (never during play) ---
 
-const osk = new ScreenKeyboard();
-
-/** A menu is up: no session (title / lobby), paused, or an overlay with buttons (between rounds). */
-function menuActive(): boolean {
-  if (!session || paused) return true;
-  if (session.kind === 'online' && session.pausedBy) return true;
-  return !overlayEl.classList.contains('hidden') && document.querySelector('#overlay-buttons button') !== null;
-}
-
-/** Where the selection starts when nothing is selected yet. */
-function defaultControl(list: HTMLElement[]): HTMLElement | undefined {
-  for (const sel of ['.osk button', '#overlay-buttons button', '#ready-btn', '#local-start', '#start', '#create-room']) {
-    const el = list.find(e => e.matches(sel));
-    if (el) return el;
-  }
-  return list[0];
-}
-
-function padNavigate(dir: NavDir): void {
-  if (!menuActive()) return;
-  document.body.classList.add('pad-nav');
-  const list = osk.isOpen ? focusables(osk.panel) : focusables();
-  const cur = document.activeElement as HTMLElement | null;
-  if (!cur || !list.includes(cur)) {
-    defaultControl(list)?.focus();
-    return;
-  }
-  if (cur instanceof HTMLInputElement && cur.type === 'range' && (dir === 'left' || dir === 'right')) {
-    stepRange(cur, dir === 'right' ? 1 : -1);
-    return;
-  }
-  if (moveFocus(list, dir)) audio.play('move');
-  // Left the volume panel: close it.
-  if (!volumePanel.classList.contains('hidden') && !document.activeElement?.closest('.audio-toggles')) {
-    volumePanel.classList.add('hidden');
-  }
-}
-
-function padConfirm(button: 'cross' | 'options', index: number): boolean {
-  if (!menuActive()) return false;
-  // Local match setup: ✕ on a controller that hasn't joined yet joins with it.
-  if (button === 'cross' && localSetup.joinPad(index)) {
-    audio.play('rotate');
-    return true;
-  }
-  document.body.classList.add('pad-nav');
-  if (osk.isOpen && button === 'options') {
-    osk.done();
-    return true;
-  }
-  const el = document.activeElement;
-  if (!(el instanceof HTMLElement) || el.getClientRects().length === 0) return false;
-  if (el instanceof HTMLInputElement && el.type === 'text' && !el.closest('.chat-form')) {
-    osk.open(el);
-    return true;
-  }
-  if (el instanceof HTMLButtonElement && !el.disabled) {
-    el.click();
-    return true;
-  }
-  return false;
-}
-
-function padBack(): void {
-  if (!menuActive()) return;
-  if (osk.isOpen) return osk.backspace();
-  if (!volumePanel.classList.contains('hidden')) {
-    volumePanel.classList.add('hidden');
-    volumeButton.focus();
-  }
-}
-
-// Mouse or keyboard: stop marking the controller's selection.
-for (const type of ['pointerdown', 'keydown']) {
-  window.addEventListener(type, () => document.body.classList.remove('pad-nav'), { capture: true });
-}
-
-// --- Overlay ---
-
-/** Move focus between the overlay's buttons (keyboard ↑/↓, controller D-pad / stick). */
-function navigateOverlay(dir: -1 | 1): boolean {
-  if (running() || overlayEl.classList.contains('hidden')) return false;
-  const buttons = [...document.querySelectorAll<HTMLButtonElement>('#overlay-buttons button')].filter(b => !b.disabled);
-  if (buttons.length === 0) return false;
-  const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
-  const next = i < 0 ? (dir > 0 ? 0 : buttons.length - 1) : (i + dir + buttons.length) % buttons.length;
-  buttons[next].focus();
-  if (next !== i) audio.play('move');
-  return true;
-}
-
-window.addEventListener('keydown', e => {
-  if (isTyping(e) || overlayEl.classList.contains('hidden') || running()) return;
-  if (e.code === 'ArrowUp' || e.code === 'ArrowDown') {
-    if (navigateOverlay(e.code === 'ArrowUp' ? -1 : 1)) e.preventDefault();
-  } else if ((e.code === 'Enter' || e.code === 'Space') && !e.repeat) {
-    // Space would normally click on release, but the game keeps Space for itself.
-    const el = document.activeElement;
-    if (el instanceof HTMLButtonElement && el.closest('#overlay-buttons')) {
-      e.preventDefault();
-      el.click();
-    }
-  }
+const padMenus = new PadMenus(topBar, {
+  // A menu is up: no session (title / lobby), paused, or an overlay with buttons (between rounds).
+  active: () => !session || paused || (session.kind === 'online' && !!session.pausedBy) || overlay.hasButtons,
+  joinPad: index => localSetup.joinPad(index),
 });
 
-let overlayTimer: ReturnType<typeof setTimeout> | undefined;
-
-/** Show an overlay after a delay (e.g. so the boards stay visible for a moment after a round). */
-function showOverlayLater(ms: number, title: string, sub: string, buttons: [string, () => void][]): void {
-  clearTimeout(overlayTimer);
-  overlayTimer = setTimeout(() => showOverlay(title, sub, buttons), ms);
-}
-
-function showOverlay(title: string, sub: string, buttons: [string, () => void][]): void {
-  clearTimeout(overlayTimer);
-  $('#overlay-title').textContent = title;
-  $('#overlay-sub').textContent = sub;
-  const box = $('#overlay-buttons');
-  box.replaceChildren(
-    ...buttons.map(([label, onClick]) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = label;
-      b.addEventListener('click', onClick);
-      return b;
-    }),
-  );
-  box.firstElementChild?.classList.add('primary');
-  $('#overlay').classList.remove('hidden');
-  (box.firstElementChild as HTMLButtonElement | null)?.focus();
-}
-
-function hideOverlay(): void {
-  clearTimeout(overlayTimer);
-  $('#overlay').classList.add('hidden');
-}
-
-// --- Title screen: the three germs hopping ---
-
-const mascots = $<HTMLCanvasElement>('#mascots');
-const mascotCtx = mascots.getContext('2d')!;
-mascots.width = 16 * 3 + 8 * 2;
-mascots.height = 20;
-function drawMascots(now: number): void {
-  mascotCtx.clearRect(0, 0, mascots.width, mascots.height);
-  COLORS.forEach((color, i) => {
-    const beat = Math.floor(now / 300 + i) % 3;
-    drawGerm(mascotCtx, i * 24, beat === 0 ? 1 : 4, color, beat === 0 ? 1 : 0);
-  });
-}
-
-// --- HUD ---
-
-function setText(id: string, text: string): void {
-  const el = $(id);
-  if (el.textContent !== text) el.textContent = text;
-}
-
 // --- Loop: fixed-step simulation on the real clock, render every frame ---
+
+const mascots = new Mascots();
 
 function step(): void {
   if (!session) return;
@@ -1386,14 +846,14 @@ function frame(now: number): void {
   lastTime = now;
   pad.poll();
   if (session) updateMusicRate();
-  if (session && sizedFor !== sizeKey()) sizeCanvases();
+  if (session && layout.stale(layoutOptions())) sizeCanvases();
 
   if (session?.kind === 'online') updateOnline(session, now);
   if (session?.kind === 'cpu') updateCpuCountdown(session, now);
   updateChat();
   voiceBar.tick();
   updateLocalPads();
-  updateTouchUi();
+  touchUi.update(session !== null);
 
   if (running()) {
     acc += dt;
@@ -1404,7 +864,7 @@ function frame(now: number): void {
   }
 
   const me = you();
-  if (!session) drawMascots(now);
+  if (!session) mascots.draw(now);
   if (session && me) {
     if (!paused) {
       youFx.update(dt);

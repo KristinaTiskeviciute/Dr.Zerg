@@ -4,13 +4,14 @@ A browser falling-capsule puzzle game. Line up four of a color to squash the ger
 
 ## Run locally
 
-Needs Node.js 20 or newer.
+Needs Node.js 22 or newer (Wrangler, which runs the relay and deploys, requires it).
 
 ```sh
 npm install
 npm run dev          # the game: http://localhost:5173
 npm run dev:server   # the multiplayer relay (in a second terminal), port 8787
 npm test             # unit tests
+npm run test:browser # smoke test in a real browser (needs Edge or Chrome installed)
 npm run build        # type-check + production build into dist/
 ```
 
@@ -21,19 +22,23 @@ try a room on your own with two tabs: Online → Create room in one, open the li
 
 After changing `wrangler.jsonc`, regenerate the Worker types with `npm run types:worker`.
 
+The browser smoke test (`e2e/smoke.mjs`) checks what unit tests can't: the menu fits, Solo, Vs CPU and Local start and pause, controllers get around the menus and join, and the touch buttons keep clear of the bottle on phone-sized screens. Run it after layout or menu changes; it isn't part of `npm run deploy`.
+
 Dev-only extras: `?play=7` in the URL jumps straight into level 7, and the `9` key sends yourself 2–4 garbage pieces.
 
 ## Layout
 
-- `src/core/` — pure game logic (board, capsules, matching, gravity, garbage, seeded RNG). No DOM; unit-tested.
+- `src/main.ts` — the game flow: starting each mode, the loop, pause, rounds, and online match messages. It wires the pieces below together.
+- `src/core/` — pure game logic (board, capsules, matching, gravity, garbage, seeded RNG, matches, the CPU AI). No DOM; unit-tested.
+- `src/play/` — what a session is (solo, Vs CPU/local, online) and when an online round is held; the result screens' wording (unit-tested).
 - `src/render/` — canvas drawing (`drawBottle`, `drawCapsuleHalf`, `drawGerm`).
-- `src/input/` — keyboard handling with DAS auto-repeat.
-- `src/ui/` — DOM helpers and settings.
-- `src/config.ts` — every tunable constant.
-
+- `src/input/` — keyboard (DAS auto-repeat), controllers, rumble and touch gestures.
+- `src/ui/` — the page: menus, lobby, local setup, chat, voice bar, HUD, the overlay, board sizing (`layout.ts`), top bar, touch buttons, controller menus, and settings.
 - `src/audio/` — sound effects and music, generated in code.
-- `src/net/` — message format shared with the server, and the WebSocket connection.
+- `src/net/` — message format shared with the server, the WebSocket connection, voice, and the worker that plays CPUs in online rooms.
+- `src/config.ts` — every tunable constant.
 - `server/` — the relay: a Cloudflare Worker with one Durable Object per room (`partyserver`). `lobby.ts` is the room logic (unit-tested).
+- `e2e/` — the browser smoke test.
 
 ## Credits
 
