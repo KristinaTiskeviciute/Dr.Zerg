@@ -42,10 +42,15 @@ try {
   await waitForRelay();
   browser = await launch();
 
-  /** A player's page, with their name saved and page errors counted as failures. */
+  /** A player's page, with their name saved, a pretend controller, and page errors counted as failures. */
   const player = async name => {
     const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
-    await context.addInitScript(n => localStorage.setItem('drzerg.settings', JSON.stringify({ mode: 'online', name: n })), name);
+    await context.addInitScript(n => {
+      localStorage.setItem('drzerg.settings', JSON.stringify({ mode: 'online', name: n }));
+      window.__pads = [{ id: 'Test pad', index: 0, connected: true, mapping: 'standard', timestamp: 0, axes: [0, 0, 0, 0],
+        buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })) }];
+      navigator.getGamepads = () => window.__pads;
+    }, name);
     const page = await context.newPage();
     page.on('pageerror', e => check(`${name}: no page errors (${e.message})`, false));
     return page;
@@ -60,6 +65,15 @@ try {
     } : null;
   });
   const until = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 8000 }).then(() => true, () => false);
+  /** Press a button on the pretend controller for a few frames. */
+  const press = async (page, button) => {
+    await page.evaluate(b => { window.__pads[0].buttons[b].pressed = true; }, button);
+    await page.waitForTimeout(100);
+    await page.evaluate(b => { window.__pads[0].buttons[b].pressed = false; }, button);
+    await page.waitForTimeout(100);
+  };
+  const CROSS = 0;
+  const rows = page => page.evaluate(() => [...document.querySelectorAll('#lobby-players li:not(.empty)')].map(li => li.textContent));
 
   console.log('Lobby');
   const amy = await player('Amy');
@@ -80,6 +94,31 @@ try {
     input.form.requestSubmit();
   });
   check('chat reaches the other player', await until(bo, () => document.querySelector('.chat-log').textContent.includes('hello from Amy')));
+
+  console.log('Couch players');
+  // Bo came in with the mouse, so his controller isn't his yet: ✕ on it adds a couch player.
+  await press(bo, CROSS);
+  check('✕ on a spare controller adds a couch player', await until(amy, () =>
+    [...document.querySelectorAll('#lobby-players li')].some(li => li.textContent.includes('Bo 2') && li.textContent.includes('COUCH'))));
+  await bo.evaluate(() => {
+    const input = document.querySelector('input.guest-name');
+    input.value = 'Kat';
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await bo.click('.guest-row [data-action="up"]');
+  check("their own browser renames them and changes their level", await until(amy, () =>
+    [...document.querySelectorAll('#lobby-players li')].some(li => li.textContent.includes('Kat') && li.textContent.includes('Lv 6'))));
+  check('the room shows whose screen they are on', (await rows(amy)).some(r => r.includes("on Bo's screen")));
+  await press(bo, CROSS);
+  check('the same controller doesn\'t add a second one', (await rows(bo)).length === 4);
+  await bo.click('.guest-row [data-action="remove"]');
+  check('and removes them', await until(amy, () => document.querySelectorAll('#lobby-players li:not(.empty)').length === 3));
+  // Phones held upright: no couch players (the screen is too narrow), just a hint to turn it.
+  await bo.setViewportSize({ width: 390, height: 844 });
+  await press(bo, CROSS);
+  check('a phone held upright asks to turn sideways instead', await until(bo, () => document.querySelector('#toast').textContent.includes('sideways'))
+    && (await rows(bo)).length === 3);
+  await bo.setViewportSize({ width: 1200, height: 800 });
 
   console.log('Match');
   await amy.click('#ready-btn');

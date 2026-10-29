@@ -44,13 +44,16 @@ keyboard.attach();
 
 const pad = new GamepadInput(keyboard, {
   onPause: () => togglePause(),
-  onConfirm: (button, index) => padMenus.confirm(button, index),
-  onBack: () => padMenus.back(),
+  onConfirm: (button, index) => { lastPad = index; return padMenus.confirm(button, index); },
+  onBack: index => { lastPad = index; padMenus.back(); },
   onMute: () => voice.toggleMute(),
-  onNavigate: dir => padMenus.navigate(dir),
+  onNavigate: (dir, index) => { lastPad = index; room.notePad(index); padMenus.navigate(dir); },
   onChange: () => topBar.renderPad(),
 });
 const rumble = new Rumble(pad);
+/** The controller last used in the menus (null once the keyboard or mouse is used): you came into a room with it. */
+let lastPad: number | null = null;
+for (const type of ['pointerdown', 'keydown']) window.addEventListener(type, () => { lastPad = null; }, { capture: true });
 const youFx = new BoardEffects();
 
 /** Send your board at least this often, even if nothing changed (doubles as a heartbeat). */
@@ -242,11 +245,11 @@ $<HTMLInputElement>('#menu-name').addEventListener('input', e => {
   settings.name = (e.target as HTMLInputElement).value.trim().slice(0, 16);
   saveSettings(settings);
 });
-$('#create-room').addEventListener('click', () => room.enter(makeRoomCode()));
+$('#create-room').addEventListener('click', () => room.enter(makeRoomCode(), lastPad));
 const joinCode = $<HTMLInputElement>('#join-code');
 function joinTypedRoom(): void {
   const code = normalizeRoomCode(joinCode.value);
-  if (code) room.enter(code);
+  if (code) room.enter(code, lastPad);
   else $('#menu-error').textContent = 'Room codes are 4 letters, like KQTZ.';
 }
 $('#join-room').addEventListener('click', joinTypedRoom);
@@ -353,15 +356,17 @@ function startCpuMatch(): void {
 // --- Local matches: several people on this screen (controllers, the keyboard) and CPUs ---
 
 const localSetup = new LocalSetup(settings, { onStart: startLocal, onBack: showMenu });
-/** The connected controllers last shown on the setup screen. */
+/** The connected controllers last shown on the local setup or online lobby screen. */
 let shownPads = '';
-function updateLocalPads(): void {
-  if (!localSetup.visible) return void (shownPads = '');
+function updatePadLists(): void {
+  const lobby = !lobbyScreen.classList.contains('hidden');
+  if (!localSetup.visible && !lobby) return void (shownPads = '');
   const list = pad.list();
   const key = JSON.stringify(list);
   if (key !== shownPads) {
     shownPads = key;
-    localSetup.setPads(list);
+    if (localSetup.visible) localSetup.setPads(list);
+    else room.setPads(list);
   }
 }
 /** The last local lineup, for "Play again". */
@@ -778,7 +783,7 @@ window.addEventListener('keydown', e => {
 const padMenus = new PadMenus(topBar, {
   // A menu is up: no session (title / lobby), paused, or an overlay with buttons (between rounds).
   active: () => !session || paused || (session.kind === 'online' && !!session.pausedBy) || overlay.hasButtons,
-  joinPad: index => localSetup.joinPad(index),
+  joinPad: index => localSetup.joinPad(index) || room.joinPad(index),
 });
 
 // --- Loop: fixed-step simulation on the real clock, render every frame ---
@@ -854,7 +859,7 @@ function frame(now: number): void {
   if (session?.kind === 'cpu') updateCpuCountdown(session, now);
   updateChat();
   voiceBar.tick();
-  updateLocalPads();
+  updatePadLists();
   touchUi.update(touchGame());
 
   if (running()) {

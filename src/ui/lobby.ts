@@ -1,7 +1,9 @@
 import { CpuSkillName, MAX_LEVEL, MIN_LEVEL, Speed } from '../config';
 import { ConnectionStatus, playerId, RoomConnection } from '../net/client';
-import { ClientMessage, LobbyState, RtcSignal, MAX_PLAYERS, MIN_PLAYERS, ServerMessage, StartInfo } from '../net/protocol';
+import { PadInfo } from '../input/gamepad';
+import { ClientMessage, LobbyPlayer, LobbyState, MAX_NAME_LENGTH, RtcSignal, MAX_PLAYERS, MIN_PLAYERS, ServerMessage, StartInfo } from '../net/protocol';
 import { $, saveSettings, Settings, SKILL_LABEL, SPEED_LABEL } from './dom';
+import { showToast } from './topbar';
 
 const SKILLS: CpuSkillName[] = ['easy', 'normal', 'hard'];
 const SPEEDS: Speed[] = ['low', 'med', 'high'];
@@ -30,6 +32,9 @@ export interface RoomCallbacks {
   onLeave(error?: string): void;
 }
 
+/** Phones held upright: couch guests need the screen sideways (see layout.ts for the same rule). */
+const portraitPhone = () => document.documentElement.clientWidth <= 520;
+
 /**
  * The online lobby screen and its connection to one room at a time.
  * Created once; enter(code) joins a room, leave() goes back to the menu.
@@ -44,6 +49,19 @@ export class OnlineRoom {
   private connectingSince = 0;
   /** Already gave up the round in progress (rejoined mid-round without a game). */
   private forfeited = false;
+  /** This browser's couch guests: guest id → the controller they play with. */
+  private readonly guests = new Map<string, number>();
+  /** Guests asked for that the room hasn't shown yet (so they aren't mistaken for gone). */
+  private readonly pendingGuests = new Set<string>();
+  /** Leftover guests (from before a reload) already asked to be removed. */
+  private readonly dropping = new Set<string>();
+  /**
+   * The controller of this browser's own player (not a guest): the one you came into the room with,
+   * or the first one used to get around the lobby. Null: you're on the keyboard / mouse so far.
+   */
+  private mainPad: number | null = null;
+  /** The controllers connected right now (for the hint about adding couch players). */
+  private pads: PadInfo[] = [];
 
   constructor(private readonly settings: Settings, private readonly cb: RoomCallbacks) {
     this.bindUi();
@@ -64,10 +82,14 @@ export class OnlineRoom {
     this.conn?.send(msg);
   }
 
-  enter(code: string): void {
+  /** Join a room. `pad`: the controller you came in with (null: the keyboard or mouse). */
+  enter(code: string, pad: number | null = null): void {
     this.conn?.close();
     this.lobby = null;
     this.setupSent = false;
+    this.guests.clear();
+    this.pendingGuests.clear();
+    this.mainPad = pad;
     if (location.pathname !== `/r/${code}`) history.pushState(null, '', `/r/${code}`);
     this.conn = new RoomConnection(
       code,
@@ -92,8 +114,75 @@ export class OnlineRoom {
     this.conn?.close();
     this.conn = null;
     this.lobby = null;
+    this.guests.clear();
+    this.pendingGuests.clear();
+    this.mainPad = null;
     if (location.pathname.startsWith('/r/')) history.pushState(null, '', '/');
     this.cb.onLeave(error);
+  }
+
+  /** This browser's couch guests and their controllers (guest id → controller index). */
+  get guestPads(): ReadonlyMap<string, number> {
+    return this.guests;
+  }
+
+  /** The connected controllers changed. */
+  setPads(pads: PadInfo[]): void {
+    this.pads = pads;
+    this.render();
+  }
+
+  /** A controller moved around the lobby: if you have no controller yet, that one's yours. */
+  notePad(index: number): void {
+    if (this.mainPad === null && !this.isGuestPad(index) && this.inLobby) this.mainPad = index;
+  }
+
+  /**
+   * ✕ on a controller in the lobby: one that isn't yours or a guest's yet adds a couch guest on
+   * this browser. True if it was used for that (so it doesn't also press a button).
+   */
+  joinPad(index: number): boolean {
+    if (!this.inLobby || !this.mine() || index === this.mainPad || this.isGuestPad(index)) return false;
+    if (portraitPhone()) {
+      showToast('Turn your phone sideways to add couch players');
+      return true;
+    }
+    if (this.lobby!.players.length >= MAX_PLAYERS) return false;
+    const id = `g-${crypto.randomUUID().slice(0, 12)}`;
+    this.guests.set(id, index);
+    this.pendingGuests.add(id);
+    this.send({ t: 'addGuest', id, name: this.guestName() });
+    return true;
+  }
+
+  /** In this room's lobby screen, between matches. */
+  private get inLobby(): boolean {
+    return !$('#lobby').classList.contains('hidden') && this.lobby?.phase === 'lobby';
+  }
+
+  private isGuestPad(index: number): boolean {
+    return [...this.guests.values()].includes(index);
+  }
+
+  /** "Kat 2", "Kat 3"…: your name and the first number none of your guests has. */
+  private guestName(): string {
+    const base = (this.settings.name || 'Player').slice(0, MAX_NAME_LENGTH - 2);
+    const taken = new Set(this.lobby?.players.map(p => p.name));
+    for (let n = 2; ; n++) if (!taken.has(`${base} ${n}`)) return `${base} ${n}`;
+  }
+
+  /** Keep the guest list in step with the room: forget guests it no longer has, drop ones from before a reload. */
+  private syncGuests(lobby: LobbyState): void {
+    const mineThere = lobby.players.filter(p => p.guestOf === this.me).map(p => p.id);
+    for (const id of mineThere) this.pendingGuests.delete(id);
+    for (const id of this.guests.keys()) if (!mineThere.includes(id) && !this.pendingGuests.has(id)) this.guests.delete(id);
+    // Guests left over from before a reload have no controller here any more.
+    if (lobby.phase !== 'lobby') return;
+    for (const id of mineThere) {
+      if (this.guests.has(id) || this.dropping.has(id)) continue;
+      this.dropping.add(id);
+      this.send({ t: 'removeGuest', id });
+    }
   }
 
   /** After a match: everyone back to the lobby with the same settings. */
@@ -117,6 +206,7 @@ export class OnlineRoom {
       case 'lobby':
         this.lobby = msg.lobby;
         $('#lobby-error').textContent = '';
+        this.syncGuests(msg.lobby);
         // Tell the room our level/speed once we have a seat (and after every reconnect).
         if (!this.setupSent && this.mine() && msg.lobby.phase === 'lobby') {
           this.setupSent = true;
@@ -127,8 +217,10 @@ export class OnlineRoom {
         if (msg.lobby.phase === 'playing' && this.mine() && !this.cb.inMatch() && !this.forfeited) {
           this.forfeited = true;
           this.send({ t: 'result', outcome: 'forfeit' });
-          // The CPUs this browser was playing can't go on either.
-          for (const p of msg.lobby.players) if (p.cpu && p.runBy === this.me) this.send({ t: 'result', outcome: 'forfeit', as: p.id });
+          // The CPUs and couch guests this browser was playing can't go on either.
+          for (const p of msg.lobby.players) {
+            if ((p.cpu && p.runBy === this.me) || p.guestOf === this.me) this.send({ t: 'result', outcome: 'forfeit', as: p.id });
+          }
         }
         if (msg.lobby.phase === 'lobby') this.forfeited = false;
         this.cb.onLobby(msg.lobby);
@@ -157,6 +249,7 @@ export class OnlineRoom {
         break;
       case 'error':
         console.warn(`[room ${this.code}] server says: ${msg.code}: ${msg.message}`);
+        this.pendingGuests.clear(); // a guest that was asked for didn't make it
         if (msg.code === 'full' || msg.code === 'inProgress') this.leave(msg.message);
         else $('#lobby-error').textContent = msg.message;
         break;
@@ -217,11 +310,15 @@ export class OnlineRoom {
     }
     $('#ready-btn').addEventListener('click', () => this.conn?.send({ t: 'ready', ready: !this.mine()?.ready }));
     $('#add-cpu').addEventListener('click', () => this.conn?.send({ t: 'addCpu' }));
-    // The host's buttons on each CPU row: skill, level −/+, speed, remove.
-    $('#lobby-players').addEventListener('click', e => {
+    // The host's buttons on each CPU row (skill, level −/+, speed, remove), and yours on your guests' rows.
+    const players = $('#lobby-players');
+    players.addEventListener('click', e => {
       const b = (e.target as Element).closest<HTMLButtonElement>('button[data-action]');
-      const cpu = this.lobby?.players.find(p => p.id === b?.dataset.id);
-      if (!b || !cpu?.cpu) return;
+      const p = this.lobby?.players.find(x => x.id === b?.dataset.id);
+      if (!b || !p) return;
+      if (p.guestOf === this.me) return this.guestButton(p, b.dataset.action!);
+      const cpu = p;
+      if (!cpu.cpu) return;
       const id = cpu.id;
       switch (b.dataset.action) {
         case 'skill': return this.conn?.send({ t: 'cpu', id, skill: next(SKILLS, cpu.cpu) });
@@ -231,8 +328,30 @@ export class OnlineRoom {
         case 'remove': return this.conn?.send({ t: 'removeCpu', id });
       }
     });
+    // A guest's name box: sent when it's done (Enter, leaving the box, or Done on the on-screen keyboard).
+    players.addEventListener('input', e => {
+      const input = e.target as HTMLInputElement;
+      if (input.classList.contains('guest-name')) input.dataset.editing = '1';
+    });
+    players.addEventListener('change', e => {
+      const input = e.target as HTMLInputElement;
+      if (!input.classList.contains('guest-name')) return;
+      delete input.dataset.editing;
+      const name = input.value.trim().slice(0, MAX_NAME_LENGTH);
+      if (name) this.send({ t: 'guest', id: input.dataset.id!, name });
+    });
     $('#start-online').addEventListener('click', () => this.conn?.send({ t: 'start' }));
     $('#leave-room').addEventListener('click', () => this.leave());
+  }
+
+  private guestButton(g: LobbyPlayer, action: string): void {
+    const id = g.id;
+    switch (action) {
+      case 'speed': return this.send({ t: 'guest', id, speed: next(SPEEDS, g.speed) });
+      case 'down': return this.send({ t: 'guest', id, level: Math.max(MIN_LEVEL, g.level - 1) });
+      case 'up': return this.send({ t: 'guest', id, level: Math.min(MAX_LEVEL, g.level + 1) });
+      case 'remove': return this.send({ t: 'removeGuest', id });
+    }
   }
 
   private render(): void {
@@ -262,12 +381,61 @@ export class OnlineRoom {
     }
     $('#fast-note').textContent = isHost ? '(you decide, as host)' : '(host decides)';
 
-    // Players (keeping the selection on a CPU button when the list is redrawn, for controllers)
+    // Players (keeping the selection on a row's button when the list is redrawn, for controllers,
+    // and a guest's name box as it is while it's being typed in)
     const list = $('#lobby-players');
-    const focusedKey = list.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.key : undefined;
-    const canEditCpus = isHost && lobby?.phase === 'lobby';
+    const focused = list.contains(document.activeElement) ? document.activeElement as HTMLElement : null;
+    const focusedKey = focused?.dataset.key;
+    const nameBoxes = new Map([...list.querySelectorAll<HTMLInputElement>('input.guest-name')]
+      .filter(input => input === focused || input.dataset.editing).map(input => [input.dataset.id!, input]));
+    const inLobby = lobby?.phase === 'lobby';
+    const canEditCpus = isHost && inLobby;
     const items: HTMLElement[] = (lobby?.players ?? []).map(p => {
       const li = document.createElement('li');
+      const button = (text: string, action: string, title: string, disabled = false) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'mini';
+        b.textContent = text;
+        b.title = title;
+        b.disabled = disabled;
+        b.dataset.action = action;
+        b.dataset.id = p.id;
+        b.dataset.key = `${p.id}:${action}`;
+        li.append(b);
+      };
+      const levelButtons = () => {
+        button('−', 'down', 'Level down', p.level <= MIN_LEVEL);
+        const lv = document.createElement('span');
+        lv.className = 'meta';
+        lv.textContent = `Lv ${p.level}`;
+        li.append(lv);
+        button('+', 'up', 'Level up', p.level >= MAX_LEVEL);
+      };
+      // Your couch guest: their name (editable), level, speed, remove; and which controller they're on.
+      if (p.guestOf === this.me && inLobby) {
+        li.classList.add('seat-row', 'guest-row');
+        const name = nameBoxes.get(p.id) ?? document.createElement('input');
+        if (!nameBoxes.has(p.id)) {
+          name.type = 'text';
+          name.className = 'guest-name';
+          name.maxLength = MAX_NAME_LENGTH;
+          name.value = p.name;
+          name.placeholder = 'Couch player name';
+          name.autocomplete = 'off';
+          name.dataset.id = p.id;
+          name.dataset.key = `${p.id}:name`;
+        }
+        const pad = this.guests.get(p.id);
+        const device = document.createElement('span');
+        device.className = 'meta device';
+        device.textContent = pad === undefined ? '🎮' : `🎮 ${pad + 1}`;
+        li.append(name, device);
+        levelButtons();
+        button(SPEED_LABEL[p.speed], 'speed', 'Speed (click to change)');
+        button('✕', 'remove', 'Remove this couch player');
+        return li;
+      }
       const who = document.createElement('span');
       who.className = 'who';
       who.textContent = p.name + (p.id === this.me ? ' (you)' : '');
@@ -280,37 +448,23 @@ export class OnlineRoom {
       };
       if (p.cpu && canEditCpus) {
         li.classList.add('cpu-row');
-        const button = (text: string, action: string, title: string, disabled = false) => {
-          const b = document.createElement('button');
-          b.type = 'button';
-          b.className = 'mini';
-          b.textContent = text;
-          b.title = title;
-          b.disabled = disabled;
-          b.dataset.action = action;
-          b.dataset.id = p.id;
-          b.dataset.key = `${p.id}:${action}`;
-          li.append(b);
-        };
         button(SKILL_LABEL[p.cpu], 'skill', 'Skill (click to change)');
-        button('−', 'down', 'Level down', p.level <= MIN_LEVEL);
-        const lv = document.createElement('span');
-        lv.className = 'meta';
-        lv.textContent = `Lv ${p.level}`;
-        li.append(lv);
-        button('+', 'up', 'Level up', p.level >= MAX_LEVEL);
+        levelButtons();
         button(SPEED_LABEL[p.speed], 'speed', 'Speed (click to change)');
         button('✕', 'remove', 'Remove this CPU');
         return li;
       }
       const meta = document.createElement('span');
       meta.className = 'meta';
-      meta.textContent = `Lv ${p.level} · ${SPEED_LABEL[p.speed]}` + (p.cpu ? ` · ${SKILL_LABEL[p.cpu]}` : '');
+      const host = p.guestOf ? lobby!.players.find(x => x.id === p.guestOf) : undefined;
+      meta.textContent = `Lv ${p.level} · ${SPEED_LABEL[p.speed]}` + (p.cpu ? ` · ${SKILL_LABEL[p.cpu]}` : '')
+        + (host ? ` · on ${host.id === this.me ? 'your' : `${host.name}'s`} screen` : '');
       li.append(meta);
       if (p.cpu) tag('CPU', 'cpu');
+      if (p.guestOf) tag('COUCH', 'couch');
       if (p.id === lobby!.hostId) tag('HOST', 'host');
       if (!p.connected) tag('AWAY', 'away');
-      else if (p.ready && !p.cpu) tag('READY', 'ready');
+      else if (p.ready && !p.cpu && !p.guestOf) tag('READY', 'ready');
       return li;
     });
     if (items.length < MAX_PLAYERS) {
@@ -325,7 +479,14 @@ export class OnlineRoom {
     if (focusedKey) list.querySelector<HTMLElement>(`[data-key="${focusedKey}"]`)?.focus();
     const addCpu = $<HTMLButtonElement>('#add-cpu');
     addCpu.classList.toggle('hidden', !canEditCpus || (lobby?.players.length ?? 0) >= MAX_PLAYERS);
-
+    // How to add a couch player: shown while there's a free seat and a controller that isn't in use.
+    const used = new Set([...this.guests.values(), ...(this.mainPad === null ? [] : [this.mainPad])]);
+    const spare = this.pads.some(pad => !used.has(pad.index));
+    const hint = $('#guest-hint');
+    hint.classList.toggle('hidden', !me || !inLobby || !spare || (lobby?.players.length ?? 0) >= MAX_PLAYERS);
+    hint.textContent = portraitPhone()
+      ? 'Couch players: turn your phone sideways to add them.'
+      : `Couch player? Press ${this.pads.some(pad => pad.xbox && !used.has(pad.index)) ? 'A' : '✕'} on another controller to play on this screen.`;
     // Buttons
     const ready = $<HTMLButtonElement>('#ready-btn');
     ready.textContent = me?.ready ? 'Ready ✓' : 'Ready';
