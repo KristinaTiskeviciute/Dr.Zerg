@@ -13,7 +13,7 @@ const next = <T>(list: T[], v: T): T => list[(list.indexOf(v) + 1) % list.length
 const SLOW_CONNECT_MS = 5000;
 
 /** Messages that matter during a match (boards, garbage, results, pause, disconnects). */
-export type MatchMessage = Extract<ServerMessage, { t: 'board' | 'garbage' | 'out' | 'round' | 'pause' | 'away' | 'back' }>;
+export type MatchMessage = Extract<ServerMessage, { t: 'board' | 'garbage' | 'out' | 'round' | 'pause' | 'away' | 'back' | 'toLobby' }>;
 /** Chat lines, the chat history (on joining) and emotes. */
 export type ChatMessage = Extract<ServerMessage, { t: 'chat' | 'chatLog' | 'emote' }>;
 
@@ -242,6 +242,7 @@ export class OnlineRoom {
       case 'away':
       case 'back':
       case 'out':
+      case 'toLobby':
         this.cb.onMatchMessage(msg);
         break;
       case 'chat':

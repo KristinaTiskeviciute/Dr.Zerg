@@ -7,8 +7,10 @@ import { OpponentBoards } from './opponents';
 export interface LayoutOptions {
   /** The touch buttons are showing (they need room). */
   pad: boolean;
-  /** Everyone's bottle the same size (local matches, and online without touch buttons). */
+  /** Everyone's bottles in one row between the stats columns (local matches, and online without touch buttons). */
   equal: boolean;
+  /** With `equal`: your bottle bigger than the others' (online, just you on this screen). */
+  bigYou: boolean;
 }
 
 /**
@@ -78,8 +80,9 @@ export class BoardLayout {
     const right = $('.hud-right').offsetWidth;
 
     if (equal) {
-      // Everyone equal (and no touch controls): every bottle the same size. One row between the stats
-      // columns at the edges; portrait phones: two players stacked or 2×2, the stats underneath.
+      // No touch controls: one row between the stats columns at the edges, every bottle the same size
+      // (bigYou: yours bigger, as against 2–3 opponents above); portrait phones: two players stacked
+      // or 2×2, the stats underneath.
       const bottles = n + 1;
       const cols = portrait ? (bottles <= 2 ? 1 : 2) : bottles;
       const rows = Math.ceil(bottles / cols);
@@ -92,14 +95,17 @@ export class BoardLayout {
       const availW = viewW - this.chatWidth() - 32 - sides - gapX * (cols - 1) - 6;
       const top = portrait ? 64 : landscape ? 52 : 48;
       const availH = viewH - top - rows * labelRow - stats - 12;
-      const fit = Math.min(availW / (cols * width), availH / (rows * height));
+      const theirs = o.bigYou && !portrait ? oppScale : 1; // relative to yours
+      const fit = Math.min(availW / ((1 + (cols - 1) * theirs) * width), availH / (rows * height));
       // Big screens: whole-number scales keep every pixel the same size, so prefer one when it's close.
       const scale = Math.max(0.3, fit >= 1 && fit - Math.floor(fit) < 0.35 ? Math.floor(fit) : fit);
       play.style.setProperty('--shoulder', `${Math.round(BOTTLE_SHOULDER_PX * scale)}px`);
-      setSizes(scale, scale);
+      play.classList.toggle('big-you', theirs < 1);
+      setSizes(scale, Math.max(0.3, scale * theirs));
       return;
     }
 
+    play.classList.remove('big-you');
     if (portrait || landscape) {
       const availW = viewW - this.chatWidth() - 2 * padW;
       let yours: number;

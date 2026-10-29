@@ -103,6 +103,12 @@ export class Room extends Server<Env> {
       case 'removeGuest': res = this.lobby.removeGuest(id, msg.id); break;
       case 'settings': res = this.lobby.setSettings(id, { fastGarbage: msg.fastGarbage, outbreak: msg.outbreak }); break;
       case 'backToLobby':
+        // After a match, or between rounds (then it ends the match for everyone); not mid-round.
+        if (this.lobby.inMatch && !this.lobby.roundOver) {
+          res = { ok: false, code: 'notAllowed', message: "Can't go back to the lobby during a round." };
+          break;
+        }
+        if (this.lobby.inMatch) this.broadcastJson({ t: 'toLobby', id, by: this.lobby.nameOf(id) });
         this.clearNextRound();
         this.lobby.backToLobby();
         break;

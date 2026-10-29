@@ -388,9 +388,9 @@ canvas { display: block; image-rendering: pixelated; }
 .chat-tab .tab-icon { writing-mode: horizontal-tb; font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif; font-size: 12px; }
 .chat-tab .tab-icon:empty { display: none; }
 
-/* An emote pops up big over a bottle (or the lobby), then floats away. */
+/* An emote pops up big over a bottle (or the lobby), then floats away; above the result/pause screen, so you can react to it. */
 .emote-pop {
-  position: absolute; left: 50%; top: 42%; z-index: 3;
+  position: absolute; left: 50%; top: 42%; z-index: 13;
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   pointer-events: none; animation: emote-pop 2.2s ease-out forwards;
 }
@@ -479,6 +479,8 @@ canvas { display: block; image-rendering: pixelated; }
 #play.equal .hud-left { grid-area: auto; grid-column: 1; grid-row: 1 / -1; justify-self: end; margin-top: var(--shoulder, 0px); }
 #play.equal .hud-right { grid-area: auto; grid-column: -2; grid-row: 1 / -1; justify-self: start; margin-top: var(--shoulder, 0px); }
 #play.equal .hud .germ-counts { flex-direction: column; flex-wrap: nowrap; gap: 8px; }
+/* Online, your bottle bigger: the others' level with its middle. */
+#play.equal.big-you .opponent { align-self: center; }
 #play.equal.landscape { gap: 34px 12px; padding: 52px 12px 12px; }
 /* Portrait: two rows of bottles, centred, then the stats columns side by side under them. */
 #play.equal.portrait { grid-template-columns: repeat(var(--cols, 1), auto); gap: 34px 10px; padding-top: 64px; }

@@ -29,7 +29,11 @@ export class Overlay {
     return this.visible && this.buttonBox.querySelector('button') !== null;
   }
 
-  show(title: string, sub: string, buttons: OverlayButtons): void {
+  /**
+   * `quiet`: the buttons are an aside (no main button, nothing selected): a stray ✕ or Enter
+   * right after a round can't press them.
+   */
+  show(title: string, sub: string, buttons: OverlayButtons, quiet = false): void {
     clearTimeout(this.timer);
     $('#overlay-title').textContent = title;
     $('#overlay-sub').textContent = sub;
@@ -42,15 +46,19 @@ export class Overlay {
         return b;
       }),
     );
-    this.buttonBox.firstElementChild?.classList.add('primary');
     this.el.classList.remove('hidden');
+    if (quiet) {
+      for (const b of this.buttonBox.children) b.classList.add('quiet');
+      return;
+    }
+    this.buttonBox.firstElementChild?.classList.add('primary');
     (this.buttonBox.firstElementChild as HTMLButtonElement | null)?.focus();
   }
 
   /** Show after a delay (e.g. so the boards stay visible for a moment after a round). */
-  showLater(ms: number, title: string, sub: string, buttons: OverlayButtons): void {
+  showLater(ms: number, title: string, sub: string, buttons: OverlayButtons, quiet = false): void {
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.show(title, sub, buttons), ms);
+    this.timer = setTimeout(() => this.show(title, sub, buttons, quiet), ms);
   }
 
   hide(): void {

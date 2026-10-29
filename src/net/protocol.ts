@@ -100,6 +100,7 @@ export type ClientMessage =
   /** Host changes one or more room settings. */
   | { t: 'settings'; fastGarbage?: boolean; outbreak?: boolean }
   | { t: 'start' }
+  /** After a match, or between rounds (ends the match for everyone). */
   | { t: 'backToLobby' }
   /** After a match: ready for another; it starts as soon as everyone has said so. */
   | { t: 'playAgain' }
@@ -170,7 +171,9 @@ export type ServerMessage =
   | { t: 'pause'; paused: boolean; by: string; resumeInMs: number }
   /** A player's connection dropped mid-match; they have graceMs to come back. */
   | { t: 'away'; id: string; name: string; graceMs: number }
-  | { t: 'back'; id: string; resumeInMs: number };
+  | { t: 'back'; id: string; resumeInMs: number }
+  /** Someone ended the match between rounds: everyone back to the lobby. */
+  | { t: 'toLobby'; id: string; by: string };
 
 // --- Validation (the server trusts nothing it receives) ---
 

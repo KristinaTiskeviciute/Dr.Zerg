@@ -1,6 +1,7 @@
 // Online smoke test: runs the relay (wrangler dev) and the game, puts two players in a room
-// with a CPU, and checks the lobby, chat, starting a match, boards arriving, the shared pause
-// and a player dropping out. Uses its own ports, so a dev server already running is fine.
+// with a CPU, and checks the lobby, chat, starting a match, boards arriving, the shared pause,
+// going back to the lobby between rounds and a player dropping out. Uses its own ports, so a
+// dev server already running is fine.
 //
 //   npm run test:online
 
@@ -155,7 +156,24 @@ try {
   await bo.keyboard.press('KeyP');
   check('anyone can resume', await until(amy, () => window.__session?.()?.pausedBy === null));
 
+  console.log('Back to lobby between rounds');
+  // Amy and Bo top out too (told to the room directly): the CPU takes round 1, and the match goes on.
+  await until(amy, () => window.__session?.()?.startAt <= performance.now());
+  for (const page of [amy, bo]) await page.evaluate(() => window.__send({ t: 'result', outcome: 'toppedOut' }));
+  const lobbyButton = '#overlay-buttons button';
+  check('the round result offers a way back to the lobby', await until(amy, sel =>
+    [...document.querySelectorAll(sel)].some(b => b.textContent === 'Back to lobby' && b.offsetParent), lobbyButton));
+  check("it isn't selected (a stray ✕ can't end the match)", await amy.evaluate(sel => !document.activeElement?.matches(sel), lobbyButton));
+  await amy.click(lobbyButton);
+  check('it takes everyone back to the lobby', await until(amy, () => !document.querySelector('#lobby').classList.contains('hidden'))
+    && await until(bo, () => !document.querySelector('#lobby').classList.contains('hidden') && window.__session?.() == null));
+  check('and the others are told who', await until(bo, () => document.querySelector('#toast').textContent.includes('Amy went back to the lobby')));
+
   console.log('Dropping out');
+  await amy.click('#ready-btn');
+  await bo.click('#ready-btn');
+  await amy.click('#start-online');
+  await until(bo, () => { const s = window.__session?.(); return s && performance.now() >= s.startAt; });
   await bo.context().close();
   check('the others are told and wait for them', await until(amy, () => document.querySelector('#overlay-title').textContent.includes('Bo disconnected')));
 } finally {

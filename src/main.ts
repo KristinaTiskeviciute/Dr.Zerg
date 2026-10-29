@@ -536,6 +536,12 @@ function onMatchMessage(msg: MatchMessage): void {
     case 'round':
       onOnlineRound(s, msg);
       break;
+    case 'toLobby':
+      // Someone else ended the match between rounds.
+      endOnlineSession();
+      room.show();
+      showToast(`${msg.by} went back to the lobby`);
+      break;
   }
 }
 
@@ -558,7 +564,9 @@ function onOnlineRound(s: OnlineSession, r: RoundResult): void {
     ['Play again', () => playAgainOnline(s)],
     ['Back to lobby', leaveOnlineMatch],
     ['Leave room', () => room.leave()],
-  ] : []);
+  ] : [
+    ['Back to lobby', leaveOnlineMatch], // ends the match for everyone
+  ], !r.matchOver);
 }
 
 /** Ready for another match with the same settings; it starts once everyone agrees. */
@@ -569,11 +577,16 @@ function playAgainOnline(s: OnlineSession): void {
 }
 
 function leaveOnlineMatch(): void {
+  endOnlineSession();
+  room.backToLobby();
+}
+
+function endOnlineSession(): void {
   session = null;
+  overlay.hide();
   cpuRunner.stop();
   keyboard.enabled = false;
   audio.stopMusic();
-  room.backToLobby();
 }
 
 /**
@@ -697,7 +710,7 @@ function layoutOptions(): LayoutOptions {
   const pad = touchUi.buttonsShown(touchGame());
   // Everyone equal: local matches and couch guests, and online too unless the touch buttons need the room.
   const local = (session?.kind === 'cpu' && session.local) || hasGuests(session);
-  return { pad, equal: local || (session?.kind === 'online' && !pad) };
+  return { pad, equal: local || (session?.kind === 'online' && !pad), bigYou: session?.kind === 'online' && !local };
 }
 
 function sizeCanvases(): void {
@@ -1019,5 +1032,9 @@ if (import.meta.env.DEV && params.has('garbage')) {
   you()?.receiveGarbage(Array.from({ length: Number(params.get('garbage')) || 4 }, (_, i) => COLORS[i % 3]));
 }
 // For browser tests in development: look at the current session from the console.
-if (import.meta.env.DEV) (window as unknown as { __session: () => Session | null }).__session = () => session;
+if (import.meta.env.DEV) {
+  const w = window as unknown as { __session: () => Session | null; __send: typeof room.send };
+  w.__session = () => session;
+  w.__send = msg => room.send(msg); // tests: tell the room things directly (e.g. a round's result)
+}
 requestAnimationFrame(frame);
