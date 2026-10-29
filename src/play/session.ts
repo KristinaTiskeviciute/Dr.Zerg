@@ -38,10 +38,30 @@ export interface OnlineOpponent {
   out: boolean;
 }
 
-/** An online round: your board runs here; the opponents' (1–3) arrive as snapshots. */
+/** A couch guest playing on this browser in an online round: their own board, controller and rumble. */
+export interface OnlineGuest {
+  id: string;
+  name: string;
+  game: Game;
+  input: KeyboardInput;
+  rumble: Rumble;
+  /** Their controller (null if it's gone missing). */
+  pad: number | null;
+  resultSent: boolean;
+  lastSent: { json: string; at: number };
+}
+
+/**
+ * An online round: your board runs here, and your couch guests' boards (none in most rooms);
+ * the opponents' (1–3) arrive as snapshots.
+ */
 export interface OnlineSession {
   kind: 'online';
   game: Game;
+  /** This browser's couch guests (empty without any). */
+  guests: OnlineGuest[];
+  /** Your rumble (with guests on this screen: only your own controller, not theirs). */
+  rumble: Rumble;
   info: StartInfo;
   /** Opponents in seating order. */
   opps: OnlineOpponent[];
@@ -65,6 +85,9 @@ export const STALE_MS = 3500;
 
 export type OnlineHold = 'result' | 'over' | 'reconnecting' | 'away' | 'paused' | 'stale' | 'countdown';
 
+/** An online round with couch guests on this screen (everyone on it is shown equal, by name). */
+export const hasGuests = (s: Session | null): s is OnlineSession => s?.kind === 'online' && s.guests.length > 0;
+
 /** Your own board in a session. */
 export function yourGame(s: Session | null): Game | null {
   if (!s) return null;
@@ -74,7 +97,7 @@ export function yourGame(s: Session | null): Game | null {
 /** Why an online round isn't advancing right now, or null if it is. */
 export function onlineHold(s: OnlineSession, now: number, connected: boolean): OnlineHold | null {
   if (s.result) return 'result';
-  if (s.game.isOver) return 'over';
+  if (s.game.isOver && s.guests.every(g => g.game.isOver)) return 'over'; // everyone on this screen is done
   if (!connected) return 'reconnecting';
   if (s.away) return 'away';
   if (s.pausedBy) return 'paused';

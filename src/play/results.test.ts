@@ -75,6 +75,15 @@ describe('onlineRoundText', () => {
     });
   });
 
+  it('with couch guests on your screen everyone goes by name, you included', () => {
+    const r = result({ winner: 'g1', reason: 'cleared', by: 'g1', wins: { me: 0, g1: 2, a: 1 }, matchOver: true });
+    expect(onlineRoundText(r, 'me', [{ id: 'g1', name: 'Bo 2' }, { id: 'a', name: 'Kat' }], 3, 'Bo')).toEqual({
+      title: 'Bo 2 wins the match!', sub: 'Bo 2 cleared their bottle. Bo 0 · Bo 2 2 · Kat 1',
+    });
+    const r2 = result({ winner: 'a', reason: 'toppedOut', by: 'me', wins: { me: 0, g1: 0, a: 1 } });
+    expect(onlineRoundText(r2, 'me', [{ id: 'g1', name: 'Bo 2' }, { id: 'a', name: 'Kat' }], 1, 'Bo').title).toBe('Kat takes round 1');
+  });
+
   it('several opponents, one left the round', () => {
     const r = result({ winner: 'b', reason: 'forfeit', by: 'a', wins: { me: 0, a: 0, b: 1 } });
     expect(onlineRoundText(r, 'me', [{ id: 'a', name: 'Kat' }, { id: 'b', name: 'Zap' }], 2)).toEqual({

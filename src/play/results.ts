@@ -51,8 +51,14 @@ export function localRoundText(match: Match, names: readonly string[]): ResultTe
   return { title, sub: w === null ? score : `${why}. ${score}` };
 }
 
-/** An online round, decided by the server. `me` is your id; `round` the round just played. */
-export function onlineRoundText(r: RoundResult, me: string, opps: { id: string; name: string }[], round: number): ResultText {
+/**
+ * An online round, decided by the server. `me` is your id; `round` the round just played.
+ * `myName`: there are couch guests on your screen, so nobody is "You": everyone goes by name
+ * (`others` then includes your guests).
+ */
+export function onlineRoundText(r: RoundResult, me: string, others: { id: string; name: string }[], round: number, myName?: string): ResultText {
+  if (myName !== undefined) return namedRoundText(r, [{ id: me, name: myName }, ...others], round);
+  const opps = others;
   /** "You" or a player's name. */
   const who = (id: string) => (id === me ? 'You' : opps.find(o => o.id === id)?.name ?? 'Someone');
   const mine = r.by === me;
@@ -72,5 +78,22 @@ export function onlineRoundText(r: RoundResult, me: string, opps: { id: string; 
     return { title: iWon ? 'You win the match!' : r.winner ? `${winnerName} wins the match` : 'Match over', sub: `${why}. ${score}` };
   }
   const title = !r.winner ? 'Draw!' : iWon ? `You take round ${round}` : `${winnerName} takes round ${round}`;
+  return { title, sub: `${why}. ${score}. Next round coming up…` };
+}
+
+/** An online round where everyone goes by name (couch guests on your screen), like a local match. */
+function namedRoundText(r: RoundResult, players: { id: string; name: string }[], round: number): ResultText {
+  const who = (id: string) => players.find(p => p.id === id)?.name ?? 'Someone';
+  const why =
+    r.reason === 'cleared' ? `${who(r.by)} cleared their bottle` :
+    r.reason === 'toppedOut' ? `${who(r.by)} topped out` :
+    r.reason === 'forfeit' ? `${who(r.by)} left the round` :
+    r.reason === 'lastStanding' ? `${who(r.by)} is the last one standing` :
+    `${who(r.by)} disconnected`;
+  const score = players.length === 2
+    ? `${players[0].name} ${r.wins[players[0].id] ?? 0} – ${r.wins[players[1].id] ?? 0} ${players[1].name}`
+    : players.map(p => `${p.name} ${r.wins[p.id] ?? 0}`).join(' · ');
+  if (r.matchOver) return { title: r.winner ? `${who(r.winner)} wins the match!` : 'Match over', sub: `${why}. ${score}` };
+  const title = !r.winner ? 'Draw!' : `${who(r.winner)} takes round ${round}`;
   return { title, sub: `${why}. ${score}. Next round coming up…` };
 }

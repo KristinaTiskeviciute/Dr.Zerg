@@ -15,7 +15,7 @@ import { EMOTES, makeRoomCode, normalizeRoomCode, RoundResult, START_COUNTDOWN_M
 import { encodeSnapshot, snapshotView } from './net/snapshot';
 import { VoiceChat } from './net/voice';
 import { cpuRoundText, localRoundText, onlineRoundText } from './play/results';
-import { cpuHold, CpuSession, onlineHold, OnlineSession, Seat, Session, staleOpponent, yourGame } from './play/session';
+import { cpuHold, CpuSession, hasGuests, OnlineGuest, onlineHold, OnlineSession, Seat, Session, staleOpponent, yourGame } from './play/session';
 import { drawBoard } from './render/draw';
 import { BoardEffects } from './render/effects';
 import { gameView } from './render/view';
@@ -67,6 +67,8 @@ let lastTime = performance.now();
 
 /** Your own board in the current session. */
 const you = () => yourGame(session);
+/** Where opponent k's bottle is among the small ones online (your couch guests' come first). */
+const oppSlot = (s: OnlineSession, k: number) => s.guests.length + k;
 
 /** True while boards should be advancing. */
 function running(): boolean {
@@ -153,7 +155,7 @@ function emoteTarget(id: string): HTMLElement | null {
   if (session?.kind !== 'online') return null;
   if (id === room.me) return $('.stage');
   const k = session.opps.findIndex(o => o.id === id);
-  return k >= 0 ? opponents.element(k) ?? null : null;
+  return k >= 0 ? opponents.element(oppSlot(session, k)) ?? null : null;
 }
 
 /**
@@ -186,8 +188,11 @@ window.addEventListener('pointerdown', () => audio.unlock(), { capture: true });
 
 const topBar = new TopBar(pad, rumble);
 const touchUi = new TouchUi(settings, keyboard, canvas, { onPause: () => togglePause(), live: () => running() && touchGame() });
-/** A game that touch controls work in: one person on this screen (not a local match, where everyone has a controller or the keyboard). */
-const touchGame = () => session !== null && !(session.kind === 'cpu' && session.local);
+/**
+ * A game that touch controls work in: one person on this screen (not a local match or an online
+ * round with couch guests, where everyone has a controller or the keyboard).
+ */
+const touchGame = () => session !== null && !(session.kind === 'cpu' && session.local) && !hasGuests(session);
 const layout = new BoardLayout(canvas, opponents, touchUi.pad, () => chat.reservedWidth);
 
 // --- Menu ---
@@ -288,7 +293,8 @@ function enterPlay(): void {
   $('#play').classList.remove('hidden');
   $('#play').classList.toggle('vs', session?.kind === 'cpu' || session?.kind === 'online');
   $('#play').classList.toggle('online', session?.kind === 'online');
-  $('#play').classList.toggle('local', session?.kind === 'cpu' && session.local);
+  // Everyone on this screen equal (local matches, and online rounds with couch guests).
+  $('#play').classList.toggle('local', (session?.kind === 'cpu' && session.local) || hasGuests(session));
   const me = you();
   $('#hud-level').textContent = String(me?.level ?? settings.level);
   $('#hud-speed').textContent = SPEED_LABEL[me?.speed ?? settings.speed];
@@ -310,15 +316,17 @@ function newCpu(skill: CpuSkillName): Seat {
 }
 
 /**
- * Where controllers' game buttons go: everyone drives the one player (null), or in a local
- * match each controller drives its own seat (and controllers nobody joined with do nothing).
+ * Where controllers' game buttons go: everyone drives the one player (null), or each listed
+ * controller drives its own seat. The rest drive `others`: nobody in a local match (controllers
+ * nobody joined with do nothing), you in an online round with couch guests.
  */
-function routePads(pads: Map<number, KeyboardInput> | null): void {
-  pad.route = pads ? i => pads.get(i) ?? null : () => keyboard;
+function routePads(pads: Map<number, KeyboardInput> | null, others: KeyboardInput | null = null): void {
+  pad.route = pads ? i => pads.get(i) ?? others : () => keyboard;
 }
 
 /** Everyone's input on this computer (the keyboard, plus each local player's controller). */
 function personInputs(): KeyboardInput[] {
+  if (session?.kind === 'online') return [keyboard, ...session.guests.map(g => g.input)];
   if (session?.kind !== 'cpu') return [keyboard];
   return session.seats.flatMap(s => (s.kind === 'person' ? [s.input] : []));
 }
@@ -409,16 +417,34 @@ function setupPlayers(names: string[], boardLabels: string[]): void {
 
 // --- Online rounds ---
 
-/** A round starts (the first from the lobby, later ones automatically): your board on the shared seed. */
+/**
+ * A round starts (the first from the lobby, later ones automatically): your board on the shared
+ * seed, and your couch guests' boards (each played with their own controller).
+ */
 function startOnline(info: StartInfo): void {
   const me = info.players.find(p => p.id === room.me);
-  const others = info.players.filter(p => p.id !== room.me);
-  if (!me || others.length === 0) return;
-  routePads(null);
+  const mine = info.players.filter(p => p.guestOf === room.me);
+  const others = info.players.filter(p => p.id !== room.me && p.guestOf !== room.me);
+  if (!me || mine.length + others.length === 0) return;
   const now = performance.now();
+  const newGame = (p: StartInfo['players'][number]) =>
+    new Game({ level: p.level, speed: p.speed, seed: info.seed, fastGarbage: info.settings.fastGarbage, playerSalt: p.id });
+  const pads = new Map<number, KeyboardInput>();
+  const guests: OnlineGuest[] = mine.map(p => {
+    const index = room.guestPads.get(p.id) ?? null;
+    const input = new KeyboardInput(); // fed by their controller only
+    input.enabled = true;
+    if (index !== null) pads.set(index, input);
+    return { id: p.id, name: p.name, game: newGame(p), input, rumble: rumble.forPad(index ?? -1), pad: index, resultSent: false, lastSent: { json: '', at: 0 } };
+  });
+  // Every other controller (and the keyboard) drives you. With guests, only your own controller rumbles for you.
+  routePads(guests.length ? pads : null, keyboard);
+  const ownPad = room.ownPad;
   session = {
     kind: 'online',
-    game: new Game({ level: me.level, speed: me.speed, seed: info.seed, fastGarbage: info.settings.fastGarbage, playerSalt: me.id }),
+    game: newGame(me),
+    guests,
+    rumble: guests.length ? rumble.forPad(ownPad ?? -1) : rumble,
     info,
     opps: others.map(p => ({ id: p.id, name: p.name, mine: p.runBy === room.me, snap: null, at: now, out: false })),
     startAt: now + info.startInMs,
@@ -428,14 +454,23 @@ function startOnline(info: StartInfo): void {
     resultSent: false,
     lastSent: { json: '', at: 0 },
   };
-  setupPlayers(['You', ...others.map(p => p.name)], others.map(p =>
-    `${p.name}${p.cpu ? ` (CPU ${SKILL_LABEL[p.cpu]})` : ''} · Lv ${p.level} · ${SPEED_LABEL[p.speed]}`));
+  const label = (p: StartInfo['players'][number]) =>
+    `${p.name}${p.cpu ? ` (CPU ${SKILL_LABEL[p.cpu]})` : ''} · Lv ${p.level} · ${SPEED_LABEL[p.speed]}`;
+  if (guests.length) {
+    // Everyone on this screen by name, your bottle labelled like the others.
+    const pad = (g: OnlineGuest) => (g.pad === null ? '🎮' : `🎮 ${g.pad + 1}`);
+    setupPlayers([me.name, ...mine.map(p => p.name), ...others.map(p => p.name)],
+      [...mine.map((p, k) => `${p.name} · ${pad(guests[k])} · Lv ${p.level} · ${SPEED_LABEL[p.speed]}`), ...others.map(label)]);
+    $('#board-label').textContent = label(me);
+  } else {
+    setupPlayers(['You', ...others.map(p => p.name)], others.map(label));
+  }
   // The CPUs this browser plays this round.
   cpuRunner.start(info.players.filter(p => p.cpu && p.runBy === room.me).map(p => ({
     id: p.id, level: p.level, speed: p.speed, skill: p.cpu!, seed: info.seed, aiSeed: randomSeed(), fastGarbage: info.settings.fastGarbage,
   })), session.startAt);
   $('#hud-fast').classList.toggle('hidden', !info.settings.fastGarbage);
-  $('#hud-outbreak').classList.toggle('hidden', !(info.settings.outbreak && others.length >= 2));
+  $('#hud-outbreak').classList.toggle('hidden', !(info.settings.outbreak && info.players.length >= 3));
   overlay.key = '';
   enterPlay();
 }
@@ -451,11 +486,21 @@ function onMatchMessage(msg: MatchMessage): void {
       break;
     case 'garbage':
       if (msg.to) {
+        if (s.result) break;
+        // For one of your couch guests.
+        const gi = s.guests.findIndex(g => g.id === msg.to);
+        if (gi >= 0) {
+          const g = s.guests[gi];
+          g.game.receiveGarbage(msg.colors);
+          opponents.fx(gi).markIncoming();
+          audio.play('warning', 0, 0); g.rumble.warning();
+          break;
+        }
         // For a CPU this browser plays.
         const k = s.opps.findIndex(o => o.id === msg.to && o.mine);
-        if (k >= 0 && !s.result) {
+        if (k >= 0) {
           cpuRunner.garbage(msg.to, msg.colors);
-          opponents.fx(k).markIncoming();
+          opponents.fx(oppSlot(s, k)).markIncoming();
         }
         break;
       }
@@ -463,7 +508,7 @@ function onMatchMessage(msg: MatchMessage): void {
       if (opp && !s.result) {
         s.game.receiveGarbage(msg.colors);
         youFx.markIncoming();
-        audio.play('warning', 0, 0); rumble.warning();
+        audio.play('warning', 0, 0); s.rumble.warning();
       }
       break;
     case 'out': {
@@ -475,7 +520,7 @@ function onMatchMessage(msg: MatchMessage): void {
       s.pausedBy = msg.paused ? msg.by : null;
       if (!msg.paused) s.startAt = now + msg.resumeInMs;
       audio.setMusicPaused(msg.paused);
-      keyboard.reset();
+      resetInputs();
       break;
     case 'away':
       if (msg.id !== room.me) s.away = { name: msg.name, until: now + msg.graceMs };
@@ -485,7 +530,7 @@ function onMatchMessage(msg: MatchMessage): void {
       if (msg.id !== room.me) s.away = null;
       s.startAt = now + msg.resumeInMs;
       for (const o of s.opps) o.at = now;
-      keyboard.reset();
+      resetInputs();
       break;
     case 'round':
       onOnlineRound(s, msg);
@@ -500,10 +545,14 @@ function onOnlineRound(s: OnlineSession, r: RoundResult): void {
   overlay.key = 'result';
   audio.stopMusic();
   if (r.winner) {
-    audio.jingle(r.winner === room.me ? 'win' : 'lose');
-    rumble.roundEnd(r.winner === room.me);
+    // A win for anyone on this screen gets the happy jingle.
+    audio.jingle(r.winner === room.me || s.guests.some(g => g.id === r.winner) ? 'win' : 'lose');
+    s.rumble.roundEnd(r.winner === room.me);
+    for (const g of s.guests) g.rumble.roundEnd(r.winner === g.id);
   }
-  const { title, sub } = onlineRoundText(r, room.me, s.opps, s.info.round);
+  const { title, sub } = s.guests.length
+    ? onlineRoundText(r, room.me, [...s.guests, ...s.opps], s.info.round, hud.playerNames[0])
+    : onlineRoundText(r, room.me, s.opps, s.info.round);
   overlay.showLater(ROUND_END_LINGER_MS, title, sub, r.matchOver ? [
     ['Play again', () => playAgainOnline(s)],
     ['Back to lobby', leaveOnlineMatch],
@@ -532,11 +581,13 @@ function leaveOnlineMatch(): void {
  */
 function blinkTargets(s: OnlineSession, from: string, firstColors: Color[]): void {
   const seats = s.info.players.map(p => p.id);
-  const alive = seats.map(id => (id === room.me ? s.game.phase !== 'lost' : !s.opps.find(o => o.id === id)?.out));
+  const guest = (id: string) => s.guests.find(g => g.id === id);
+  const alive = seats.map(id =>
+    id === room.me ? s.game.phase !== 'lost' : guest(id) ? guest(id)!.game.phase !== 'lost' : !s.opps.find(o => o.id === id)?.out);
   for (const t of garbageTargets(seats.indexOf(from), alive, firstColors, s.info.settings.outbreak)) {
-    if (seats[t] === room.me) continue; // your own warning comes with the garbage itself
+    if (seats[t] === room.me || guest(seats[t])) continue; // warnings on this screen come with the garbage itself
     const k = s.opps.findIndex(o => o.id === seats[t]);
-    if (k >= 0) opponents.fx(k).markIncoming();
+    if (k >= 0) opponents.fx(oppSlot(s, k)).markIncoming();
   }
 }
 
@@ -547,13 +598,21 @@ function onOnlineOver(game: Game): void {
   room.send({ t: 'result', outcome: game.phase === 'won' ? 'cleared' : 'toppedOut' });
 }
 
-/** Send your board if it changed (at most BOARD_SNAPSHOT_HZ), or anyway every so often as a heartbeat. */
+/**
+ * Send your board (and your couch guests') if it changed (at most BOARD_SNAPSHOT_HZ), or anyway
+ * every so often as a heartbeat.
+ */
 function sendBoard(s: OnlineSession, now: number): void {
-  if (now - s.lastSent.at < 1000 / BOARD_SNAPSHOT_HZ) return;
-  const json = JSON.stringify(encodeSnapshot(s.game));
-  if (json !== s.lastSent.json || now - s.lastSent.at >= SNAPSHOT_KEEPALIVE_MS) {
-    room.send({ t: 'board', snap: JSON.parse(json) });
-    s.lastSent = { json, at: now };
+  sendOneBoard(s, now);
+  for (const g of s.guests) sendOneBoard(g, now, g.id);
+}
+
+function sendOneBoard(b: { game: Game; lastSent: { json: string; at: number } }, now: number, as?: string): void {
+  if (now - b.lastSent.at < 1000 / BOARD_SNAPSHOT_HZ) return;
+  const json = JSON.stringify(encodeSnapshot(b.game));
+  if (json !== b.lastSent.json || now - b.lastSent.at >= SNAPSHOT_KEEPALIVE_MS) {
+    room.send({ t: 'board', snap: JSON.parse(json), ...(as && { as }) });
+    b.lastSent = { json, at: now };
   }
 }
 
@@ -634,7 +693,7 @@ function updateCpuCountdown(s: CpuSession, now: number): void {
 // --- Board sizes ---
 
 function layoutOptions(): LayoutOptions {
-  return { pad: touchUi.buttonsShown(touchGame()), local: session?.kind === 'cpu' && session.local };
+  return { pad: touchUi.buttonsShown(touchGame()), local: (session?.kind === 'cpu' && session.local) || hasGuests(session) };
 }
 
 function sizeCanvases(): void {
@@ -675,7 +734,10 @@ function updateMusicRate(): void {
   if (!me || !session) return;
   const others =
     session.kind === 'cpu' ? session.match.games.slice(1).filter(g => g.phase !== 'lost').map(g => g.germsLeft) :
-    session.kind === 'online' ? session.opps.filter(o => !o.out && o.snap).map(o => o.snap!.g) : [];
+    session.kind === 'online' ? [
+      ...session.guests.filter(g => g.game.phase !== 'lost').map(g => g.game.germsLeft),
+      ...session.opps.filter(o => !o.out && o.snap).map(o => o.snap!.g),
+    ] : [];
   const rate = musicRate(me.speedStep, [me.germsLeft, ...others]);
   if (Math.abs(rate - lastMusicRate) > 0.001) {
     lastMusicRate = rate;
@@ -796,14 +858,11 @@ function step(): void {
     const g = session.game;
     g.step(SIM_STEP_MS, keyboard.poll(SIM_STEP_MS));
     const events = g.drainEvents();
-    handleYourEvents(events);
+    handleYourEvents(events, keyboard, session.kind === 'online' ? session.rumble : rumble);
     youFx.onEvents(events);
     if (session.kind === 'online') {
-      for (const e of events) {
-        if (e.type !== 'garbageOut') continue;
-        room.send({ t: 'garbage', colors: e.colors, firstColors: e.firstColors });
-        blinkTargets(session, room.me, e.firstColors);
-      }
+      sendGarbage(session, events);
+      stepGuests(session);
     }
     if (g.isOver) (session.kind === 'solo' ? onSoloOver : onOnlineOver)(g);
   } else {
@@ -823,6 +882,30 @@ function step(): void {
   }
 }
 
+/** Garbage from a board on this screen (yours, or a couch guest's `as` them) goes to the room, which picks the targets. */
+function sendGarbage(s: OnlineSession, events: GameEvent[], as?: string): void {
+  for (const e of events) {
+    if (e.type !== 'garbageOut') continue;
+    room.send({ t: 'garbage', colors: e.colors, firstColors: e.firstColors, ...(as && { as }) });
+    blinkTargets(s, as ?? room.me, e.firstColors);
+  }
+}
+
+/** Your couch guests' boards: one step each, with their own controller, sounds and rumble. */
+function stepGuests(s: OnlineSession): void {
+  s.guests.forEach((g, k) => {
+    g.game.step(SIM_STEP_MS, g.input.poll(SIM_STEP_MS));
+    const events = g.game.drainEvents();
+    handleYourEvents(events, g.input, g.rumble);
+    opponents.fx(k).onEvents(events);
+    sendGarbage(s, events, g.id);
+    if (g.game.isOver && !g.resultSent) {
+      g.resultSent = true;
+      room.send({ t: 'result', outcome: g.game.phase === 'won' ? 'cleared' : 'toppedOut', as: g.id });
+    }
+  });
+}
+
 /** Side panel: everyone's round stars and germ counts. */
 function updateHud(): void {
   if (!session) return;
@@ -835,6 +918,7 @@ function updateHud(): void {
     const wins = session.result?.wins ?? session.info.wins;
     hud.update([
       { wins: wins[room.me] ?? 0, germs: session.game.germsLeft, out: session.game.phase === 'lost' },
+      ...session.guests.map(g => ({ wins: wins[g.id] ?? 0, germs: g.game.germsLeft, out: g.game.phase === 'lost' })),
       ...session.opps.map(o => ({ wins: wins[o.id] ?? 0, germs: o.snap?.g ?? null, out: o.out })),
     ]);
   }
@@ -884,12 +968,15 @@ function frame(now: number): void {
     if (!hidden) drawBoard(ctx, gameView(me, youFx), 0, 0, now);
     const youOut =
       session.kind === 'cpu' ? !session.match.isAlive(0) :
-      session.kind === 'online' && session.opps.length > 1 && session.game.phase === 'lost';
+      session.kind === 'online' && session.guests.length + session.opps.length > 1 && session.game.phase === 'lost';
     $('#play').classList.toggle('you-out', youOut);
     if (session.kind === 'online') {
-      session.opps.forEach((o, k) => opponents.draw(
-        k, o.snap && !hidden ? snapshotView(o.snap, opponents.fx(k).incomingFresh) : null, now, o.out,
-      ));
+      const s = session;
+      s.guests.forEach((g, k) => opponents.draw(k, hidden ? null : gameView(g.game, opponents.fx(k)), now, g.game.phase === 'lost'));
+      s.opps.forEach((o, k) => {
+        const slot = oppSlot(s, k);
+        opponents.draw(slot, o.snap && !hidden ? snapshotView(o.snap, opponents.fx(slot).incomingFresh) : null, now, o.out);
+      });
     }
     if (session.kind === 'cpu') {
       const m = session.match;

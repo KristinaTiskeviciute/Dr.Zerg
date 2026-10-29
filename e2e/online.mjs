@@ -62,6 +62,8 @@ try {
       pausedBy: s.pausedBy,
       running: performance.now() >= s.startAt,
       boards: Object.fromEntries(s.opps.map(o => [o.name, o.snap !== null])),
+      col: s.game.active?.col ?? null,
+      guests: s.guests.map(g => ({ name: g.name, col: g.game.active?.col ?? null })),
     } : null;
   });
   const until = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 8000 }).then(() => true, () => false);
@@ -119,6 +121,8 @@ try {
   check('a phone held upright asks to turn sideways instead', await until(bo, () => document.querySelector('#toast').textContent.includes('sideways'))
     && (await rows(bo)).length === 3);
   await bo.setViewportSize({ width: 1200, height: 800 });
+  await press(bo, CROSS); // a couch player for the match (a new one, Bo 2)
+  check('a couch player joins again for the match', await until(amy, () => document.querySelectorAll('#lobby-players li:not(.empty)').length === 4));
 
   console.log('Match');
   await amy.click('#ready-btn');
@@ -130,6 +134,20 @@ try {
   const b = await session(bo);
   check("Amy sees Bo's and the CPU's boards", a && Object.values(a.boards).every(Boolean), JSON.stringify(a?.boards));
   check("Bo sees Amy's and the CPU's boards", b && Object.values(b.boards).every(Boolean), JSON.stringify(b?.boards));
+  check("Amy sees the couch player's board", a && Object.keys(a.boards).length === 3, JSON.stringify(a?.boards));
+  check("the couch player's board runs on Bo's screen", b?.guests.length === 1, JSON.stringify(b?.guests));
+  // Their controller moves their capsule, not Bo's (Bo plays on the keyboard).
+  const RIGHT = 15;
+  const before = await session(bo);
+  await press(bo, RIGHT);
+  const after = await session(bo);
+  check("the couch player's controller moves only their capsule",
+    after.guests[0].col === before.guests[0].col + 1 && after.col === before.col, `${JSON.stringify(before)} → ${JSON.stringify(after)}`);
+
+  // The couch player tops out (forced, to keep the test quick): the room knocks them out, for everyone.
+  await bo.evaluate(() => { window.__session().guests[0].game.phase = 'lost'; });
+  check("a couch player topping out knocks them out for everyone", await until(amy, () =>
+    window.__session?.()?.opps.find(o => o.name === 'Bo 2')?.out === true));
 
   console.log('Pause');
   await amy.keyboard.press('KeyP');

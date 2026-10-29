@@ -126,6 +126,11 @@ export class OnlineRoom {
     return this.guests;
   }
 
+  /** Your own controller in this room (null: the keyboard / mouse so far). */
+  get ownPad(): number | null {
+    return this.mainPad;
+  }
+
   /** The connected controllers changed. */
   setPads(pads: PadInfo[]): void {
     this.pads = pads;
