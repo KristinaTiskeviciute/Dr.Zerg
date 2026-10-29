@@ -182,7 +182,9 @@ window.addEventListener('keydown', () => audio.unlock(), { capture: true });
 window.addEventListener('pointerdown', () => audio.unlock(), { capture: true });
 
 const topBar = new TopBar(pad, rumble);
-const touchUi = new TouchUi(settings, keyboard, canvas, { onPause: () => togglePause(), live: running });
+const touchUi = new TouchUi(settings, keyboard, canvas, { onPause: () => togglePause(), live: () => running() && touchGame() });
+/** A game that touch controls work in: one person on this screen (not a local match, where everyone has a controller or the keyboard). */
+const touchGame = () => session !== null && !(session.kind === 'cpu' && session.local);
 const layout = new BoardLayout(canvas, opponents, touchUi.pad, () => chat.reservedWidth);
 
 // --- Menu ---
@@ -618,7 +620,7 @@ function updateCpuCountdown(s: CpuSession, now: number): void {
   if (now < s.startAt) {
     const n = s.seats.length - 1;
     const vs = s.local ? hud.playerNames.join(' vs ') : n === 1 ? 'vs CPU' : `vs ${n} CPUs`;
-    overlay.setState('countdown', String(Math.ceil((s.startAt - now) / 1000)), (s.match.round > 1 ? `Round ${s.match.round}` : vs) + touchUi.tip, []);
+    overlay.setState('countdown', String(Math.ceil((s.startAt - now) / 1000)), (s.match.round > 1 ? `Round ${s.match.round}` : vs) + (s.local ? '' : touchUi.tip), []);
   } else {
     overlay.clearState('countdown');
   }
@@ -627,11 +629,11 @@ function updateCpuCountdown(s: CpuSession, now: number): void {
 // --- Board sizes ---
 
 function layoutOptions(): LayoutOptions {
-  return { pad: touchUi.buttonsShown(session !== null), local: session?.kind === 'cpu' && session.local };
+  return { pad: touchUi.buttonsShown(touchGame()), local: session?.kind === 'cpu' && session.local };
 }
 
 function sizeCanvases(): void {
-  touchUi.update(session !== null); // show or hide the touch buttons first, so they can be measured
+  touchUi.update(touchGame()); // show or hide the touch buttons first, so they can be measured
   layout.size(layoutOptions());
 }
 window.addEventListener('resize', () => { if (session) sizeCanvases(); });
@@ -853,7 +855,7 @@ function frame(now: number): void {
   updateChat();
   voiceBar.tick();
   updateLocalPads();
-  touchUi.update(session !== null);
+  touchUi.update(touchGame());
 
   if (running()) {
     acc += dt;

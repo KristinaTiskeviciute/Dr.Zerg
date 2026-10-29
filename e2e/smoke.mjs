@@ -103,11 +103,16 @@ try {
     await page.context().close();
   }
   // Everyone equal: every bottle the same size, none overlapping each other or the stats, no scrolling.
-  for (const [width, height] of [[1300, 800], [390, 844], [844, 390]]) {
-    const page = await open({ width, height, touch: width < 900, settings: { mode: 'local' } });
+  for (const [width, height] of [[1300, 800], [390, 844], [375, 667], [844, 390]]) {
+    // Touch buttons switched on, to check they stay off in a local match.
+    const page = await open({ width, height, touch: width < 900, settings: { mode: 'local', touch: 'buttons' } });
     await page.click('#start');
     await page.click('#local-keyboard');
     for (let i = 0; i < 3; i++) await page.click('#local-add-cpu');
+    if (width < 900) {
+      const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+      check(`local setup ${width}×${height}: fits the screen`, !wide);
+    }
     await page.click('#local-start');
     await page.waitForTimeout(500);
     const { sizes, overlaps, overflow } = await page.evaluate(() => {
@@ -123,6 +128,7 @@ try {
     check(`local ${width}×${height}: 4 bottles the same size`, sizes.length === 1, sizes.join(', '));
     check(`local ${width}×${height}: nothing overlaps`, overlaps === 0, `${overlaps} overlaps`);
     check(`local ${width}×${height}: no sideways scrolling`, !overflow);
+    if (width < 900) check(`local ${width}×${height}: no touch controls`, !(await page.isVisible('#touch-pad')) && !(await page.isVisible('#touch-pause')));
     await page.context().close();
   }
 

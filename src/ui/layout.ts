@@ -77,33 +77,24 @@ export class BoardLayout {
     const right = $('.hud-right').offsetWidth;
 
     if (local) {
-      // Everyone equal: every bottle the same size, between the stats columns at the edges. One row,
-      // except portrait phones: two players stacked, three or four in a 2×2 grid.
+      // Everyone equal (and no touch controls): every bottle the same size. One row between the stats
+      // columns at the edges; portrait phones: two players stacked or 2×2, the stats underneath.
       const bottles = n + 1;
       const cols = portrait ? (bottles <= 2 ? 1 : 2) : bottles;
       const rows = Math.ceil(bottles / cols);
       play.style.setProperty('--cols', String(cols));
       const gapX = portrait ? 10 : landscape ? 12 : 24;
       const labelRow = 34; // each bottle's name label below it
-      const sides = portrait ? 2 * Math.max(left, right) : left + right; // portrait: equal columns, so the grid is centred
-      const availW = viewW - this.chatWidth() - 2 * padW - 32 - sides - gapX * (cols + 1) - 6;
-      const top = portrait ? (pad ? 52 : 64) : landscape ? 52 : 48;
-      const availH = viewH - top - rows * labelRow - 12 - padH;
+      const sides = portrait ? 0 : left + right + 2 * gapX;
+      const stats = portrait ? $('.hud').offsetHeight + labelRow : 0;
+      const availW = viewW - this.chatWidth() - 32 - sides - gapX * (cols - 1) - 6;
+      const top = portrait ? 64 : landscape ? 52 : 48;
+      const availH = viewH - top - rows * labelRow - stats - 12;
       const fit = Math.min(availW / (cols * width), availH / (rows * height));
       // Big screens: whole-number scales keep every pixel the same size, so prefer one when it's close.
-      let scale = Math.max(0.3, fit >= 1 && fit - Math.floor(fit) < 0.35 ? Math.floor(fit) : fit);
+      const scale = Math.max(0.3, fit >= 1 && fit - Math.floor(fit) < 0.35 ? Math.floor(fit) : fit);
       play.style.setProperty('--shoulder', `${Math.round(BOTTLE_SHOULDER_PX * scale)}px`);
       setSizes(scale, scale);
-      // Touch buttons in portrait: the same safety check as below, for the lowest row of bottles.
-      if (pad && portrait) {
-        for (let tries = 0; tries < 10; tries++) {
-          const over = this.lowestBottle() + 10 - this.buttonsTop();
-          if (over <= 0) break;
-          scale *= Math.max(0.7, 1 - over / (rows * height * scale));
-          play.style.setProperty('--shoulder', `${Math.round(BOTTLE_SHOULDER_PX * scale)}px`);
-          setSizes(scale, scale);
-        }
-      }
       return;
     }
 
@@ -169,11 +160,6 @@ export class BoardLayout {
   /** Where the touch buttons start (the top of the higher cluster). */
   private buttonsTop(): number {
     return Math.min(...[...this.touchPad.querySelectorAll<HTMLElement>('.cluster')].map(c => c.getBoundingClientRect().top));
-  }
-
-  /** The bottom of the lowest bottle on screen (yours or anyone's). */
-  private lowestBottle(): number {
-    return Math.max(...[this.canvas, ...this.opponents.canvases].map(c => c.getBoundingClientRect().bottom));
   }
 
   /** The page size and the touch buttons' room (if showing). */
