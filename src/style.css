@@ -159,7 +159,8 @@ button.on#ready-btn { background: #2f8f4e; color: var(--text); }
 .hud-rounds .out .who-name { opacity: 0.45; text-decoration: line-through; }
 #menu.cpu .panel { width: min(600px, calc(100% - 16px)); }
 
-.seg-mode button { font-size: 12px; padding: 14px 10px 12px; }
+/* Sized by their labels and allowed to shrink, so the four always fit inside the panel. */
+.seg.seg-mode button { flex: auto; min-width: 0; font-size: 11px; padding: 14px 6px 12px; }
 .panel-cols { display: grid; grid-template-columns: 1fr; gap: 28px; }
 #menu.cpu .panel-cols { grid-template-columns: 1fr 1fr; }
 .panel-cols .col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
@@ -503,7 +504,7 @@ canvas { display: block; image-rendering: pixelated; }
 /* Narrow menus: the four mode buttons fit the panel. */
 @media (max-width: 520px) {
   .seg-mode { gap: 6px; }
-  .seg-mode button { font-size: 9px; padding: 12px 2px 10px; }
+  .seg.seg-mode button { font-size: 9px; padding: 12px 2px 10px; }
 }
 
 /* Controller: the selected control is always marked */
