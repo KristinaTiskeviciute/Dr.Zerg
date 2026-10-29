@@ -92,6 +92,7 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - **Reconnect identity:** random player ID kept in browser storage, sent with `join`. A page reload mid-round forfeits that round.
 - **Hosting:** Cloudflare Workers + Durable Objects (via `partyserver`), frontend and relay in one `wrangler deploy`. Location hint: eastern North America.
 - **New seed every round** of best-of-3.
+- **Everyone equal on screen** (decided, like local matches): your bottle the same size as the others', labelled "You · Lv · speed", in one row between the stats columns. Phones with the touch buttons showing keep the old layout (yours bigger, the others smaller), since the buttons need the room.
 
 ## Touch controls (opt-in)
 - Switch in the top bar, shown on touchscreens only, cycles off → buttons → swipe; off by default and remembered: being on a phone doesn't mean someone wants touch controls (decided). Buttons are the main style (swipes didn't feel right to Kris); swipes stay as an option.

@@ -7,8 +7,8 @@ import { OpponentBoards } from './opponents';
 export interface LayoutOptions {
   /** The touch buttons are showing (they need room). */
   pad: boolean;
-  /** A local match: everyone's bottle is the same size. */
-  local: boolean;
+  /** Everyone's bottle the same size (local matches, and online without touch buttons). */
+  equal: boolean;
 }
 
 /**
@@ -46,9 +46,9 @@ export class BoardLayout {
     this.sizedFor = this.key(o);
     const { width, height } = boardPixelSize(8, 16);
     // Room for the touch buttons: along the bottom, or (landscape phones) down the sides.
-    const { pad, local } = o;
+    const { pad, equal } = o;
     const n = opponents.count;
-    const oppScale = n <= 1 || local ? OPPONENT_BOARD_SCALE : n === 2 ? 0.6 : 0.5;
+    const oppScale = n <= 1 ? OPPONENT_BOARD_SCALE : n === 2 ? 0.6 : 0.5;
     const setSizes = (yours: number, theirs: number) => {
       canvas.width = width;
       canvas.height = height;
@@ -67,6 +67,7 @@ export class BoardLayout {
     play.classList.toggle('portrait', portrait);
     play.classList.toggle('landscape', landscape);
     play.classList.toggle('buttons', pad);
+    play.classList.toggle('equal', equal);
     touchPad.classList.toggle('sides', landscape);
     // The whole panel's height, including its padding for the iPhone home bar (safe area), plus a little gap.
     const padH = pad && !landscape ? touchPad.offsetHeight + 8 : 0;
@@ -76,13 +77,14 @@ export class BoardLayout {
     const left = $('.hud-left').offsetWidth;
     const right = $('.hud-right').offsetWidth;
 
-    if (local) {
+    if (equal) {
       // Everyone equal (and no touch controls): every bottle the same size. One row between the stats
       // columns at the edges; portrait phones: two players stacked or 2×2, the stats underneath.
       const bottles = n + 1;
       const cols = portrait ? (bottles <= 2 ? 1 : 2) : bottles;
       const rows = Math.ceil(bottles / cols);
       play.style.setProperty('--cols', String(cols));
+      play.style.setProperty('--chat-w', `${this.chatWidth()}px`); // the overlay stays clear of the chat
       const gapX = portrait ? 10 : landscape ? 12 : 24;
       const labelRow = 34; // each bottle's name label below it
       const sides = portrait ? 0 : left + right + 2 * gapX;
@@ -106,9 +108,9 @@ export class BoardLayout {
         // Equal side columns (so your bottle is centred): room for the wider one twice.
         const side = Math.min(240, 2 * Math.max(left, right) + 20);
         yours = (availW - 32 - side - 6) / width; // a few px spare for rounding
-        theirs = n ? Math.min(yours * (local ? 1 : oppScale), (availW - 32 - (n - 1) * 8 - 6) / (n * width)) : 0;
+        theirs = n ? Math.min(yours * oppScale, (availW - 32 - (n - 1) * 8 - 6) / (n * width)) : 0;
         // Both rows have to fit the height too (minus padding and the name labels).
-        const availH = viewH - (pad ? 52 : 64) - 36 - (local ? 22 : 0) - (n ? 34 : 0) - padH;
+        const availH = viewH - (pad ? 52 : 64) - 36 - (n ? 34 : 0) - padH;
         const shrink = availH / (yours * height + theirs * height);
         if (shrink < 1) { yours *= shrink; theirs *= shrink; }
       } else {

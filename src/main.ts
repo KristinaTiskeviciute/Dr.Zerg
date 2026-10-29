@@ -464,6 +464,7 @@ function startOnline(info: StartInfo): void {
     $('#board-label').textContent = label(me);
   } else {
     setupPlayers(['You', ...others.map(p => p.name)], others.map(label));
+    $('#board-label').textContent = label({ ...me, name: 'You' }); // shown when everyone's equal
   }
   // The CPUs this browser plays this round.
   cpuRunner.start(info.players.filter(p => p.cpu && p.runBy === room.me).map(p => ({
@@ -693,7 +694,10 @@ function updateCpuCountdown(s: CpuSession, now: number): void {
 // --- Board sizes ---
 
 function layoutOptions(): LayoutOptions {
-  return { pad: touchUi.buttonsShown(touchGame()), local: (session?.kind === 'cpu' && session.local) || hasGuests(session) };
+  const pad = touchUi.buttonsShown(touchGame());
+  // Everyone equal: local matches and couch guests, and online too unless the touch buttons need the room.
+  const local = (session?.kind === 'cpu' && session.local) || hasGuests(session);
+  return { pad, equal: local || (session?.kind === 'online' && !pad) };
 }
 
 function sizeCanvases(): void {

@@ -101,9 +101,9 @@ body::after {
 .pad-list .warn { color: #ff8e7a; flex-basis: 100%; }
 .local-title { font-size: 18px; font-weight: normal; color: var(--yellow); text-shadow: 3px 3px 0 var(--edge); }
 #play.local .not-local { display: none !important; }
-/* Local matches: P1's bottle gets a name label like the others */
+/* Everyone equal: your (or P1's) bottle gets a name label like the others */
 .stage .board-label { position: absolute; top: 100%; left: -12px; right: -12px; margin-top: 10px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#play:not(.local) .board-label { display: none; }
+#play:not(.equal) .board-label { display: none; }
 
 input[type='text'] {
   font: inherit;
@@ -463,36 +463,37 @@ canvas { display: block; image-rendering: pixelated; }
 #play.buttons:not(.compact) { padding-bottom: var(--pad-h, 0px); }
 
 /*
- * Local matches: everyone equal, and no touch controls (everyone has a controller or the keyboard).
+ * Everyone equal (local matches, and online without touch controls; .local also hides what differs
+ * per player and doesn't single anyone out).
  * Every bottle the same size, all in one row between the stats columns at the far edges (--cols,
  * set from layout.ts). Portrait phones: 1–2 across with the stats underneath. The bottles (P1's
  * stage and the others) are all items of one grid.
  */
-#play.local {
+#play.equal {
   display: grid; grid-template-areas: none; justify-content: center; align-items: start;
   grid-template-columns: auto repeat(var(--cols, 2), auto) auto; grid-template-rows: auto;
   gap: 34px 24px; padding-top: 48px; padding-bottom: 46px;
 }
-#play.local .hud, #play.local .opponents { display: contents; }
-#play.local .stage { grid-area: auto; grid-column: 2; grid-row: 1; margin: 0; }
-#play.local .hud-left { grid-area: auto; grid-column: 1; grid-row: 1 / -1; justify-self: end; margin-top: var(--shoulder, 0px); }
-#play.local .hud-right { grid-area: auto; grid-column: -2; grid-row: 1 / -1; justify-self: start; margin-top: var(--shoulder, 0px); }
-#play.local .hud .germ-counts { flex-direction: column; flex-wrap: nowrap; gap: 8px; }
-#play.local.landscape { gap: 34px 12px; padding: 52px 12px 12px; }
+#play.equal .hud, #play.equal .opponents { display: contents; }
+#play.equal .stage { grid-area: auto; grid-column: 2; grid-row: 1; margin: 0; }
+#play.equal .hud-left { grid-area: auto; grid-column: 1; grid-row: 1 / -1; justify-self: end; margin-top: var(--shoulder, 0px); }
+#play.equal .hud-right { grid-area: auto; grid-column: -2; grid-row: 1 / -1; justify-self: start; margin-top: var(--shoulder, 0px); }
+#play.equal .hud .germ-counts { flex-direction: column; flex-wrap: nowrap; gap: 8px; }
+#play.equal.landscape { gap: 34px 12px; padding: 52px 12px 12px; }
 /* Portrait: two rows of bottles, centred, then the stats columns side by side under them. */
-#play.local.portrait { grid-template-columns: repeat(var(--cols, 1), auto); gap: 34px 10px; padding-top: 64px; }
-#play.local.portrait .stage { grid-column: 1; }
-#play.local.portrait :is(.stage, .opponent) { justify-self: center; }
-#play.local.portrait .hud {
+#play.equal.portrait { grid-template-columns: repeat(var(--cols, 1), auto); gap: 34px 10px; padding-top: 64px; }
+#play.equal.portrait .stage { grid-column: 1; }
+#play.equal.portrait :is(.stage, .opponent) { justify-self: center; }
+#play.equal.portrait .hud {
   display: flex; flex-direction: row; justify-content: space-between; gap: 24px;
   grid-column: 1 / -1; grid-row: 3; min-width: 100%;
 }
-#play.local.portrait :is(.hud-left, .hud-right) { margin-top: 0; }
-/* Every name label the same, and within its own bottle's width; every germ count the same colour. */
-#play.local .stage .board-label, #play.local .opponent .label { left: 0; right: 0; font-size: 8px; }
+#play.equal.portrait :is(.hud-left, .hud-right) { margin-top: 0; }
+/* Every name label the same, and within its own bottle's width. Local: every germ count the same colour. */
+#play.equal .stage .board-label, #play.equal .opponent .label { left: 0; right: 0; font-size: 8px; }
 #play.local .hud .germ-counts .mine strong { color: #ff8e7a; }
-/* The countdown, pause and results cover the whole screen, not just P1's bottle. */
-#play.local .stage .overlay { position: fixed; inset: 0; z-index: 12; }
+/* The countdown, pause and results cover the whole screen, not just one bottle. */
+#play.equal .stage .overlay { position: fixed; inset: 0 var(--chat-w, 0px) 0 0; z-index: 12; }
 
 .touch-pad {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 15;
