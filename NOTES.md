@@ -102,7 +102,7 @@ Changes to the original spec, agreed in planning (2026-10-24).
 ## Local matches (same screen)
 - Menu → Local → setup screen (`src/ui/local.ts`): each person presses ✕ on their controller to join (or "Join with keyboard", one keyboard player at most), CPUs fill seats, everyone sets level/speed. 2–4 seats, at least one person. People sit first (P1 gets the main bottle), named P1–P4; CPUs named after the germs.
 - Plays as a `Match` like Vs CPU (same session kind, `local: true`): each person seat has its own `KeyboardInput`, fed only by their controller (`GamepadInput.route`); controllers that didn't join drive nothing. Any controller can pause and work the menus. Rumble goes to each player's own controller.
-- All bottles the same size. No two players on one keyboard, and no mixing local with online (decided).
+- Everyone equal on screen: every bottle the same size, the stats columns at the far edges and the bottles together between them (in a row; on portrait phones two stacked, or 2×2 for three or four). The countdown, pause and results cover the whole screen, not P1's bottle. No two players on one keyboard (decided).
 
 ## CPU players in online rooms
 - The host adds CPUs in the lobby (seats count toward the 4); each has its own skill, level and speed. CPUs are always ready, named after the germs.

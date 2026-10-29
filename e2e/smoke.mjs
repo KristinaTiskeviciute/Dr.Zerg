@@ -102,6 +102,29 @@ try {
     await checkPause(page, 'local');
     await page.context().close();
   }
+  // Everyone equal: every bottle the same size, none overlapping each other or the stats, no scrolling.
+  for (const [width, height] of [[1300, 800], [390, 844], [844, 390]]) {
+    const page = await open({ width, height, touch: width < 900, settings: { mode: 'local' } });
+    await page.click('#start');
+    await page.click('#local-keyboard');
+    for (let i = 0; i < 3; i++) await page.click('#local-add-cpu');
+    await page.click('#local-start');
+    await page.waitForTimeout(500);
+    const { sizes, overlaps, overflow } = await page.evaluate(() => {
+      const boards = [document.querySelector('#board'), ...document.querySelectorAll('#opponents canvas')].map(c => c.getBoundingClientRect());
+      const all = [...boards, ...['.hud-left', '.hud-right'].map(s => document.querySelector(s).getBoundingClientRect())];
+      const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      return {
+        sizes: [...new Set(boards.map(b => `${Math.round(b.width)}×${Math.round(b.height)}`))],
+        overlaps: all.flatMap((a, i) => all.slice(i + 1).filter(b => hit(a, b))).length,
+        overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      };
+    });
+    check(`local ${width}×${height}: 4 bottles the same size`, sizes.length === 1, sizes.join(', '));
+    check(`local ${width}×${height}: nothing overlaps`, overlaps === 0, `${overlaps} overlaps`);
+    check(`local ${width}×${height}: no sideways scrolling`, !overflow);
+    await page.context().close();
+  }
 
   console.log('Controllers');
   {

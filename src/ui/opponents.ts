@@ -34,6 +34,11 @@ export class OpponentBoards {
     this.container.classList.toggle('many', labels.length > 1);
   }
 
+  /** Every opponent's canvas. */
+  get canvases(): HTMLCanvasElement[] {
+    return this.slots.map(s => s.canvas);
+  }
+
   /** Opponent i's bottle with its name (e.g. to pop an emote over it). */
   element(i: number): HTMLElement | undefined {
     return this.slots[i]?.wrap;
