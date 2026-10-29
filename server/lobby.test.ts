@@ -386,6 +386,121 @@ describe('CPU players', () => {
   });
 });
 
+describe('couch guests', () => {
+  /** Alice (host) and Bob; Bob has a guest on his browser. */
+  function withGuest(): Lobby {
+    const l = ready(2);
+    expect(l.addGuest('bob-123', 'guest-b1', 'Bob 2').ok).toBe(true);
+    return l;
+  }
+
+  it('anyone can add guests to their own browser; they take seats and are always ready', () => {
+    const l = withGuest();
+    expect(l.addGuest('alice-1', 'guest-a1', 'Alice 2').ok).toBe(true);
+    const guests = l.state.players.filter(p => p.guestOf);
+    expect(guests.map(p => [p.name, p.guestOf, p.ready, p.connected])).toEqual([['Bob 2', 'bob-123', true, true], ['Alice 2', 'alice-1', true, true]]);
+    expect(l.addGuest('alice-1', 'guest-a2', 'Alice 3').ok).toBe(false); // 4 seats taken
+    expect(l.join('carol-1', 'Carol').ok).toBe(false);
+    expect(l.canStart).toBe(true);
+  });
+
+  it('only their own person can change or remove a guest, and only in the lobby', () => {
+    const l = withGuest();
+    expect(l.addGuest('carol-1', 'guest-c1', 'X').ok).toBe(false); // not in the room
+    expect(l.addGuest('alice-1', 'guest-b1', 'X').ok).toBe(false); // id taken
+    expect(l.setGuest('alice-1', 'guest-b1', { level: 1 }).ok).toBe(false);
+    expect(l.setGuest('bob-123', 'guest-b1', { name: 'Kat', level: 12, speed: 'high' }).ok).toBe(true);
+    expect(l.state.players[2]).toMatchObject({ name: 'Kat', level: 12, speed: 'high' });
+    expect(l.removeGuest('alice-1', 'guest-b1').ok).toBe(false);
+    l.start('alice-1', 1);
+    expect(l.setGuest('bob-123', 'guest-b1', { level: 3 }).ok).toBe(false);
+    expect(l.removeGuest('bob-123', 'guest-b1').ok).toBe(false);
+    expect(l.addGuest('alice-1', 'guest-a1', 'Alice 2').ok).toBe(false);
+    l.backToLobby();
+    expect(l.removeGuest('bob-123', 'guest-b1').ok).toBe(true);
+    expect(l.state.players).toHaveLength(2);
+  });
+
+  it("only the guest's own browser plays for them, and garbage for them goes there", () => {
+    const l = withGuest();
+    expect(l.playsFor('bob-123', 'guest-b1')).toBe(false); // not in a match yet
+    const info = l.start('alice-1', 1);
+    if (!info.ok) throw new Error('start failed');
+    expect(info.value.players.map(p => p.guestOf)).toEqual([null, null, 'bob-123']);
+    expect(l.playsFor('bob-123', 'guest-b1')).toBe(true);
+    expect(l.playsFor('alice-1', 'guest-b1')).toBe(false);
+    expect(l.playsFor('bob-123', 'alice-1')).toBe(false);
+    expect(l.runnerOf('guest-b1')).toBe('bob-123');
+    expect(l.runnerOf('alice-1')).toBeNull();
+  });
+
+  it('a guest is targeted, knocked out and can win like anyone', () => {
+    const l = withGuest();
+    l.start('alice-1', 1);
+    expect(l.garbageTargets('bob-123', [Color.Red])).toEqual(['guest-b1']);
+    l.result('alice-1', 'toppedOut');
+    const r = l.result('bob-123', 'toppedOut')!;
+    expect(r.round!.winner).toBe('guest-b1');
+  });
+
+  it("guests are away with their person's browser, and come back with it", () => {
+    const l = withGuest();
+    l.start('alice-1', 1);
+    l.disconnect('bob-123');
+    expect(l.state.players.map(p => p.connected)).toEqual([true, false, false]);
+    l.join('bob-123', 'bob');
+    expect(l.state.players.map(p => p.connected)).toEqual([true, true, true]);
+  });
+
+  it('when their person leaves for good, the guests are knocked out and leave too', () => {
+    const l = ready(3);
+    l.addGuest('bob-123', 'guest-b1', 'Bob 2');
+    l.start('alice-1', 1);
+    l.disconnect('bob-123');
+    expect(l.abandon('guest-b1')!.out).toEqual({ id: 'guest-b1', reason: 'disconnect' }); // the server knocks out the guests first
+    l.abandon('bob-123');
+    l.remove('bob-123');
+    expect(l.state.players.map(p => p.id)).toEqual(['alice-1', 'carol-1']);
+    expect(l.inMatch).toBe(true); // Alice and Carol play on
+  });
+
+  it('a browser with guests gets fewer CPUs to play', () => {
+    const l = withGuest();
+    l.addCpu('alice-1', 'cpu-aaaa');
+    for (let round = 1; round <= 2; round++) {
+      const info = round === 1 ? l.start('alice-1', 1) : { ok: true as const, value: l.nextRound(2)! };
+      if (!info.ok) throw new Error('start failed');
+      expect(info.value.players.find(p => p.cpu)!.runBy).toBe('alice-1'); // Bob already plays two boards
+      l.result('guest-b1', 'cleared');
+    }
+  });
+
+  it("the room isn't kept for guests or CPUs alone; host passes to a person", () => {
+    const l = withGuest();
+    l.remove('alice-1');
+    expect(l.state.hostId).toBe('bob-123');
+    l.addCpu('bob-123', 'cpu-aaaa');
+    l.remove('bob-123');
+    expect(l.state.players).toEqual([]);
+  });
+
+  it('after a match the people need to ready up again, guests stay ready', () => {
+    const l = withGuest();
+    l.start('alice-1', 1);
+    l.backToLobby();
+    expect(l.state.players.map(p => p.ready)).toEqual([false, false, true]);
+  });
+
+  it('parses guest messages', () => {
+    expect(parseClientMessage('{"t":"addGuest","id":"guest-b1","name":"  Kat\\u0007 "}')).toEqual({ t: 'addGuest', id: 'guest-b1', name: 'Kat' });
+    expect(parseClientMessage('{"t":"addGuest","id":"!","name":"Kat"}')).toBeNull();
+    expect(parseClientMessage('{"t":"guest","id":"guest-b1","level":7,"speed":"low"}')).toEqual({ t: 'guest', id: 'guest-b1', level: 7, speed: 'low' });
+    expect(parseClientMessage('{"t":"guest","id":"guest-b1","level":99}')).toBeNull();
+    expect(parseClientMessage('{"t":"removeGuest","id":"guest-b1"}')).toEqual({ t: 'removeGuest', id: 'guest-b1' });
+    expect(parseClientMessage('{"t":"board","snap":null,"as":"guest-b1"}')).toBeNull();
+  });
+});
+
 describe('protocol', () => {
   it('accepts valid messages and rejects junk', () => {
     expect(parseClientMessage('{"t":"join","playerId":"abc123","name":"  Kris  "}')).toEqual({ t: 'join', playerId: 'abc123', name: 'Kris' });

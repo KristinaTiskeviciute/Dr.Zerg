@@ -106,9 +106,15 @@ Changes to the original spec, agreed in planning (2026-10-24).
 
 ## CPU players in online rooms
 - The host adds CPUs in the lobby (seats count toward the 4); each has its own skill, level and speed. CPUs are always ready, named after the germs.
-- The server never simulates: each round it gives every CPU to one of the people in the room, spreading them evenly (`assignCpus`, fewest first). That browser plays it in a Web Worker (`src/net/cpu-worker.ts`), so it keeps going in a background tab, and sends its board/garbage/result `as` the CPU (the server checks `runsCpu`). Garbage aimed at a CPU goes to its runner with `to`.
+- The server never simulates: each round it gives every CPU to one of the people in the room, spreading them evenly (`assignCpus`, fewest first). That browser plays it in a Web Worker (`src/net/cpu-worker.ts`), so it keeps going in a background tab, and sends its board/garbage/result `as` the CPU (the server checks `playsFor`). Garbage aimed at a CPU goes to its runner with `to`.
 - CPUs wait whenever the round is held for everyone (pause, away, quiet, result) but keep playing if their runner's own board is over.
 - Someone leaves for good: the CPUs they were playing are knocked out for that round, and go to someone else next round. A rejoin mid-round forfeits your CPUs along with you. Only CPUs left = empty room.
+
+## Couch guests (mixed local + online) — in progress
+- In an online room any browser can add couch guests: extra people on that screen, each with their own controller. To the server a guest is a seat with `guestOf` = the browser's player id; it reuses the CPU path (`as` on board/garbage/result, checked by `playsFor`; garbage for a guest goes to its browser with `to`). Unlike a CPU, a guest always stays with its browser.
+- Guests are always ready, here/away exactly when their browser is, and leave with it (knocked out for the round, seats freed). A browser with guests counts as that busy when CPUs are shared out. Count toward the 4 seats. Lobby only to add/change/remove, and only by their own browser.
+- Decided: join by pressing ✕ in the online lobby on a controller not in use (like the local setup); names default to "<name> 2", editable (on-screen keyboard on a controller); the browser's main player keeps the keyboard and any controller that isn't a guest's; no touch controls; same everyone-equal layout as local matches. Phones: guests can only be added in landscape (portrait says to turn the phone); turning to portrait mid-match falls back to the local portrait layout, smaller but intact.
+- Rooms with no guests run exactly the code they did before. Built in phases: server and messages (done), lobby, playing (a separate "mixed" session on the client), layout, online test.
 
 ## Chat and emotes (online)
 - A tab docked at the right edge in online rooms (lobby and matches); collapsible, remembered per browser, with an unread count while collapsed. The page keeps room for it (`--chat-room`), except in narrow windows where it covers the game.

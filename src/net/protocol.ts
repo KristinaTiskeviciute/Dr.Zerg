@@ -56,6 +56,11 @@ export interface LobbyPlayer {
   cpu: CpuSkillName | null;
   /** CPUs: which person's browser plays this CPU in the current match (null in the lobby). */
   runBy: string | null;
+  /**
+   * A couch guest: an extra person playing on this person's browser, with their own controller
+   * (null otherwise). Guests are always ready and are here exactly when that browser is.
+   */
+  guestOf: string | null;
 }
 
 export interface RoomSettings {
@@ -102,6 +107,10 @@ export type ClientMessage =
   | { t: 'addCpu' }
   | { t: 'cpu'; id: string; level?: number; speed?: Speed; skill?: CpuSkillName }
   | { t: 'removeCpu'; id: string }
+  /** A couch guest on your browser: add one (your browser picks the id), change one (unset fields stay), or remove one. Lobby only. */
+  | { t: 'addGuest'; id: string; name: string }
+  | { t: 'guest'; id: string; name?: string; level?: number; speed?: Speed }
+  | { t: 'removeGuest'; id: string }
   /** Chat and emotes (only offered outside of play: lobby, pause, between rounds). */
   | { t: 'chat'; text: string }
   | { t: 'emote'; e: number }
@@ -109,7 +118,7 @@ export type ClientMessage =
   | { t: 'voice'; on: boolean }
   /** Voice chat setup for one other player. */
   | { t: 'rtc'; to: string; data: RtcSignal }
-  // During a match. `as`: sent on behalf of a CPU this browser plays.
+  // During a match. `as`: sent on behalf of a CPU this browser plays, or one of its couch guests.
   | { t: 'board'; snap: BoardSnapshot; as?: string }
   /** firstColors = the colors of the chain's first clear; the server uses them to pick targets. */
   | { t: 'garbage'; colors: number[]; firstColors: number[]; as?: string }
@@ -120,7 +129,7 @@ export interface StartInfo {
   seed: number;
   /** Start after this long (relative, so clocks don't need to agree). */
   startInMs: number;
-  players: { id: string; name: string; level: number; speed: Speed; cpu: CpuSkillName | null; runBy: string | null }[];
+  players: { id: string; name: string; level: number; speed: Speed; cpu: CpuSkillName | null; runBy: string | null; guestOf: string | null }[];
   settings: RoomSettings;
   /** Round number in this match (1, 2, 3) and round wins so far, by player id. */
   round: number;
@@ -152,7 +161,7 @@ export type ServerMessage =
   | { t: 'rtc'; from: string; data: RtcSignal }
   // During a match:
   | { t: 'board'; from: string; snap: BoardSnapshot }
-  /** Garbage for you, or (to) for a CPU your browser plays. */
+  /** Garbage for you, or (to) for a CPU your browser plays or one of your couch guests. */
   | { t: 'garbage'; from: string; colors: number[]; to?: string }
   /** A player was knocked out of the round (topped out, left the round, or gone for good). */
   | { t: 'out'; id: string; reason: Outcome | 'disconnect' }
@@ -237,6 +246,21 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     }
     case 'removeCpu':
       return isPlayerId(m.id) ? { t: 'removeCpu', id: m.id } : null;
+    case 'addGuest':
+      return isPlayerId(m.id) ? { t: 'addGuest', id: m.id, name: cleanName(m.name) } : null;
+    case 'guest': {
+      if (!isPlayerId(m.id)) return null;
+      if (m.level !== undefined && !isLevel(m.level)) return null;
+      if (m.speed !== undefined && !isSpeed(m.speed)) return null;
+      return {
+        t: 'guest', id: m.id,
+        ...(m.name !== undefined && { name: cleanName(m.name) }),
+        ...(m.level !== undefined && { level: m.level as number }),
+        ...(m.speed !== undefined && { speed: m.speed as Speed }),
+      };
+    }
+    case 'removeGuest':
+      return isPlayerId(m.id) ? { t: 'removeGuest', id: m.id } : null;
     case 'board':
       if (!isAs(m.as)) return null;
       return isSnapshot(m.snap) ? { t: 'board', snap: m.snap, ...(m.as !== undefined && { as: m.as }) } : null;
@@ -261,7 +285,7 @@ export function parseClientMessage(raw: string): ClientMessage | null {
 }
 
 const isSkill = (v: unknown): v is CpuSkillName => typeof v === 'string' && v in CPU_SKILLS;
-/** Optional "on behalf of this CPU" id. */
+/** Optional "on behalf of this CPU or couch guest" id. */
 const isAs = (v: unknown) => v === undefined || isPlayerId(v);
 const isPlayerId = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(v);
 const isShortString = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max;

@@ -58,20 +58,22 @@ export class Lobby {
     if (existing) {
       existing.connected = true;
       existing.name = name;
+      for (const g of this.guests(id)) g.connected = true;
       return ok(undefined);
     }
     if (this.phase === 'playing') return fail('inProgress', 'A game is already being played in this room.');
     if (this.players.length >= MAX_PLAYERS) return fail('full', 'This room is full.');
-    this.players.push({ id, name, ready: false, level: 5, speed: 'med', connected: true, voice: false, cpu: null, runBy: null });
+    this.players.push({ id, name, ready: false, level: 5, speed: 'med', connected: true, voice: false, cpu: null, runBy: null, guestOf: null });
     this.hostId ??= id;
     return ok(undefined);
   }
 
-  /** Their connection dropped. They keep their seat until removed (see remove). */
+  /** Their connection dropped. They keep their seat until removed (see remove); so do their couch guests. */
   disconnect(id: string): void {
     const p = this.find(id);
     if (!p) return;
     p.connected = false;
+    for (const g of this.guests(id)) g.connected = false;
     p.voice = false; // their voice connections are gone; they rejoin voice when they're back
     if (this.phase === 'lobby') p.ready = false;
   }
@@ -83,7 +85,7 @@ export class Lobby {
     if (this.players.length >= MAX_PLAYERS) return fail('full', 'This room is full.');
     const used = new Set(this.players.map(p => p.name));
     const name = CPU_NAMES.find(n => !used.has(n)) ?? 'CPU';
-    this.players.push({ id: cpuId, name, ready: true, level: 5, speed: 'med', connected: true, voice: false, cpu: 'normal', runBy: null });
+    this.players.push({ id: cpuId, name, ready: true, level: 5, speed: 'med', connected: true, voice: false, cpu: 'normal', runBy: null, guestOf: null });
     return ok(undefined);
   }
 
@@ -104,6 +106,53 @@ export class Lobby {
     return ok(undefined);
   }
 
+  /**
+   * A person adds a couch guest: someone else playing on their browser with their own controller
+   * (lobby only, while there's a free seat). Their browser picks the guest's id.
+   */
+  addGuest(id: string, guestId: string, name: string): Result {
+    const host = this.find(id);
+    if (!host || host.cpu || host.guestOf) return fail('notAllowed', 'Join the room first.');
+    if (this.phase !== 'lobby') return fail('notAllowed', "Can't change that now.");
+    if (this.players.length >= MAX_PLAYERS) return fail('full', 'This room is full.');
+    if (this.find(guestId)) return fail('notAllowed', 'That id is taken.');
+    this.players.push({
+      id: guestId, name, ready: true, level: 5, speed: 'med', connected: host.connected, voice: false, cpu: null, runBy: null, guestOf: id,
+    });
+    return ok(undefined);
+  }
+
+  /** A person changes one of their couch guests' name, level or speed (unset fields stay as they are). */
+  setGuest(id: string, guestId: string, change: { name?: string; level?: number; speed?: Speed }): Result {
+    const g = this.find(guestId);
+    if (!g || g.guestOf !== id || this.phase !== 'lobby') return fail('notAllowed', "Can't change that now.");
+    if (change.name !== undefined) g.name = change.name;
+    if (change.level !== undefined) g.level = change.level;
+    if (change.speed !== undefined) g.speed = change.speed;
+    return ok(undefined);
+  }
+
+  removeGuest(id: string, guestId: string): Result {
+    const g = this.find(guestId);
+    if (!g || g.guestOf !== id || this.phase !== 'lobby') return fail('notAllowed', "Can't change that now.");
+    this.players = this.players.filter(x => x.id !== guestId);
+    return ok(undefined);
+  }
+
+  /** `id`'s couch guests (their ids). */
+  guestsOf(id: string): string[] {
+    return this.guests(id).map(g => g.id);
+  }
+
+  /**
+   * True if `id`'s browser plays `seatId` in the current match: a CPU it was given, or one of its
+   * couch guests. (So it may send that seat's board, garbage and result.)
+   */
+  playsFor(id: string, seatId: string): boolean {
+    const p = this.find(seatId);
+    return this.inMatch && !!p && (p.guestOf === id || (!!p.cpu && p.runBy === id));
+  }
+
   /** True if `id`'s browser plays CPU `cpuId` in the current match. */
   runsCpu(id: string, cpuId: string): boolean {
     const p = this.find(cpuId);
@@ -115,21 +164,23 @@ export class Lobby {
     return this.inMatch ? this.players.filter(p => p.cpu && p.runBy === id).map(p => p.id) : [];
   }
 
-  /** The person whose browser plays this CPU (null if it's not a CPU or nobody does). */
-  runnerOf(cpuId: string): string | null {
-    return this.find(cpuId)?.runBy ?? null;
+  /** The person whose browser plays this seat for it: a CPU's runner or a guest's host (null for a person, or nobody). */
+  runnerOf(seatId: string): string | null {
+    const p = this.find(seatId);
+    return p?.runBy ?? p?.guestOf ?? null;
   }
 
   /**
    * Spread the CPUs over the people who are here: each CPU goes to whoever runs the fewest so
    * far, so with two people and two CPUs each runs one. Ties go round the seats, starting one
-   * seat later each round, so a lone CPU isn't always on the host's browser.
+   * seat later each round, so a lone CPU isn't always on the host's browser. A browser with couch
+   * guests already has that many boards to run, so it counts as that busy from the start.
    */
   private assignCpus(): void {
-    const here = this.players.filter(p => !p.cpu && p.connected);
+    const here = this.players.filter(p => this.isPerson(p) && p.connected);
     const shift = here.length ? ((this.match?.round ?? 1) - 1) % here.length : 0;
     const people = [...here.slice(shift), ...here.slice(0, shift)];
-    const load = new Map(people.map(p => [p.id, 0]));
+    const load = new Map(people.map(p => [p.id, this.guests(p.id).length]));
     for (const cpu of this.players.filter(p => p.cpu)) {
       let best: string | null = null;
       for (const person of people) if (best === null || load.get(person.id)! < load.get(best)!) best = person.id;
@@ -155,16 +206,19 @@ export class Lobby {
   }
 
   /**
-   * Free their seat for good. If they were host, the next player becomes host. A match
-   * carries on without them while at least two players are left.
+   * Free their seat for good, and their couch guests' seats. If they were host, the next person
+   * becomes host. A match carries on without them while at least two players are left.
    */
   remove(id: string): void {
-    this.players = this.players.filter(p => p.id !== id);
-    if (!this.players.some(p => !p.cpu)) this.players = []; // only CPUs left: the room is empty
-    if (this.hostId === id) this.hostId = this.players.find(p => !p.cpu)?.id ?? null;
+    const gone = new Set([id, ...this.guestsOf(id)]);
+    this.players = this.players.filter(p => !gone.has(p.id));
+    if (!this.players.some(p => this.isPerson(p))) this.players = []; // only CPUs left: the room is empty
+    if (this.hostId === id) this.hostId = this.players.find(p => this.isPerson(p))?.id ?? null;
     if (this.match) {
-      delete this.match.wins[id];
-      this.match.out.delete(id);
+      for (const g of gone) {
+        delete this.match.wins[g];
+        this.match.out.delete(g);
+      }
       if (this.players.length < MIN_PLAYERS) this.backToLobby();
     }
   }
@@ -174,7 +228,7 @@ export class Lobby {
   }
 
   get isEmpty(): boolean {
-    return this.players.every(p => p.cpu || !p.connected);
+    return this.players.every(p => !this.isPerson(p) || !p.connected);
   }
 
   setup(id: string, level: number, speed: Speed): Result {
@@ -273,7 +327,8 @@ export class Lobby {
   abandon(id: string): Report | null {
     const m = this.match;
     if (!this.inMatch || !m) return null;
-    if (this.players.length <= 2 && !this.find(id)?.cpu) {
+    const p = this.find(id);
+    if (this.players.length <= 2 && p && this.isPerson(p)) {
       const other = this.players.find(p => p.id !== id)?.id ?? null;
       return { out: { id, reason: 'disconnect' }, round: this.finishRound(other, 'disconnect', id, true) };
     }
@@ -311,7 +366,7 @@ export class Lobby {
     this.phase = 'lobby';
     this.match = null;
     for (const p of this.players) {
-      p.ready = p.cpu !== null; // CPUs are always ready
+      p.ready = !this.isPerson(p); // CPUs and couch guests are always ready
       p.runBy = null;
     }
   }
@@ -335,11 +390,20 @@ export class Lobby {
     return {
       seed,
       startInMs: START_COUNTDOWN_MS,
-      players: this.players.map(({ id, name, level, speed, cpu, runBy }) => ({ id, name, level, speed, cpu, runBy })),
+      players: this.players.map(({ id, name, level, speed, cpu, runBy, guestOf }) => ({ id, name, level, speed, cpu, runBy, guestOf })),
       settings: this.settings,
       round: this.match!.round,
       wins: { ...this.match!.wins },
     };
+  }
+
+  /** Someone with their own browser (not a CPU or a couch guest). */
+  private isPerson(p: LobbyPlayer): boolean {
+    return !p.cpu && !p.guestOf;
+  }
+
+  private guests(id: string): LobbyPlayer[] {
+    return this.players.filter(p => p.guestOf === id);
   }
 
   private find(id: string): LobbyPlayer | undefined {
