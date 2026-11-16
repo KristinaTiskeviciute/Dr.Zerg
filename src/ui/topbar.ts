@@ -18,12 +18,12 @@ export function setLabel(b: HTMLElement, icon: string, text: string): void {
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 /** A short message at the top of the screen. */
-export function showToast(text: string): void {
+export function showToast(text: string, ms = 1500): void {
   const el = $('#toast');
   el.textContent = text;
   el.classList.remove('hidden');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.add('hidden'), 1500);
+  toastTimer = setTimeout(() => el.classList.add('hidden'), ms);
 }
 
 /** The audio buttons (sound, music), the volume sliders under them, and the controller's rumble switch. */

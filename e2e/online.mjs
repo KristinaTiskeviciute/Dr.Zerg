@@ -1,7 +1,7 @@
 // Online smoke test: runs the relay (wrangler dev) and the game, puts two players in a room
 // with a CPU, and checks the lobby, chat, starting a match, boards arriving, the shared pause,
-// going back to the lobby between rounds and a player dropping out. Uses its own ports, so a
-// dev server already running is fine.
+// going back to the lobby between rounds, a player dropping out and the server restarting. Uses
+// its own ports, so a dev server already running is fine.
 //
 //   npm run test:online
 
@@ -16,7 +16,8 @@ const RELAY = `http://localhost:${RELAY_PORT}`;
 
 // The relay serves dist/, so it has to exist (any build will do; the game itself comes from Vite).
 if (!existsSync('dist/index.html')) await build({ logLevel: 'error' });
-const relay = spawn(`npx wrangler dev --port ${RELAY_PORT}`, { shell: true, stdio: 'ignore', env: { ...process.env, CI: '1' } });
+const startRelay = () => spawn(`npx wrangler dev --port ${RELAY_PORT}`, { shell: true, stdio: 'ignore', env: { ...process.env, CI: '1' } });
+let relay = startRelay();
 const server = await createServer({
   server: {
     port: GAME_PORT, strictPort: true,
@@ -67,7 +68,8 @@ try {
       guests: s.guests.map(g => ({ name: g.name, col: g.game.active?.col ?? null })),
     } : null;
   });
-  const until = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 8000 }).then(() => true, () => false);
+  const untilWithin = (page, timeout, fn, arg) => page.waitForFunction(fn, arg, { timeout }).then(() => true, () => false);
+  const until = (page, fn, arg) => untilWithin(page, 8000, fn, arg);
   /** Press a button on the pretend controller for a few frames. */
   const press = async (page, button) => {
     await page.evaluate(b => { window.__pads[0].buttons[b].pressed = true; }, button);
@@ -176,6 +178,15 @@ try {
   await until(bo, () => { const s = window.__session?.(); return s && performance.now() >= s.startAt; });
   await bo.context().close();
   check('the others are told and wait for them', await until(amy, () => document.querySelector('#overlay-title').textContent.includes('Bo disconnected')));
+
+  console.log('Server restart');
+  // A deploy restarts the server and the room starts over, mid-match: back to the lobby, not stuck.
+  stop(relay);
+  relay = startRelay();
+  await waitForRelay();
+  check('a restarted room sends you back to the lobby', await untilWithin(amy, 30000, () =>
+    !document.querySelector('#lobby').classList.contains('hidden') && window.__session?.() == null)
+    && (await amy.textContent('#toast')).includes('server restarted'));
 } finally {
   await browser?.close();
   await server.close();

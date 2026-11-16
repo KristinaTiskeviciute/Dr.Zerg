@@ -110,6 +110,14 @@ const room = new OnlineRoom(settings, {
   onLobby: lobby => {
     voice.sync(lobby.players);
     voiceBar.setPlayers(lobby.players);
+    // Mid-match but the room has no match: the server restarted (e.g. an update) and the room
+    // started over, so this match can't finish. (After a match ends the room is back in the lobby
+    // too, but then we have the final result.)
+    if (lobby.phase === 'lobby' && session?.kind === 'online' && !session.result?.matchOver) {
+      endOnlineSession();
+      room.show();
+      showToast('The server restarted, so the match ended. Back in the lobby.', 6000);
+    }
   },
   onRtc: (from, data) => void voice.onSignal(from, data),
   inMatch: () => session?.kind === 'online',
@@ -540,7 +548,7 @@ function onMatchMessage(msg: MatchMessage): void {
       // Someone else ended the match between rounds.
       endOnlineSession();
       room.show();
-      showToast(`${msg.by} went back to the lobby`);
+      showToast(`${msg.by} went back to the lobby`, 4000);
       break;
   }
 }
