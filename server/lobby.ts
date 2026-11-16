@@ -35,7 +35,7 @@ const fail = (code: ErrorCode, message: string): Result<never> => ({ ok: false, 
 export class Lobby {
   private players: LobbyPlayer[] = [];
   private hostId: string | null = null;
-  private fastGarbage = false;
+  private fastGarbage = true;
   private outbreak = false;
   private phase: LobbyState['phase'] = 'lobby';
   private match: MatchState | null = null;

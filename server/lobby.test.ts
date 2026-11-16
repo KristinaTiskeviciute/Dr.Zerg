@@ -57,9 +57,9 @@ describe('Lobby', () => {
 
   it('only the host can change room settings', () => {
     const l = twoReady();
-    expect(l.setSettings('bob-123', { fastGarbage: true }).ok).toBe(false);
-    expect(l.setSettings('alice-1', { fastGarbage: true }).ok).toBe(true);
-    expect(l.state.settings.fastGarbage).toBe(true);
+    expect(l.setSettings('bob-123', { fastGarbage: false }).ok).toBe(false);
+    expect(l.setSettings('alice-1', { fastGarbage: false }).ok).toBe(true);
+    expect(l.state.settings.fastGarbage).toBe(false);
   });
 
   it('starts only when the host asks and 2+ players are here and ready', () => {
@@ -87,7 +87,7 @@ describe('Lobby', () => {
   it('locks settings, setups and new joins during a match', () => {
     const l = twoReady();
     l.start('alice-1', 1);
-    expect(l.setSettings('alice-1', { fastGarbage: true }).ok).toBe(false);
+    expect(l.setSettings('alice-1', { fastGarbage: false }).ok).toBe(false);
     expect(l.setup('bob-123', 9, 'high').ok).toBe(false);
     const r = l.join('carol-1', 'Carol');
     expect(r.ok).toBe(false);
@@ -105,11 +105,11 @@ describe('Lobby', () => {
 
   it('back to lobby keeps settings and clears ready flags', () => {
     const l = twoReady();
-    l.setSettings('alice-1', { fastGarbage: true });
+    l.setSettings('alice-1', { fastGarbage: false });
     l.start('alice-1', 1);
     l.backToLobby();
     expect(l.state.phase).toBe('lobby');
-    expect(l.state.settings.fastGarbage).toBe(true);
+    expect(l.state.settings.fastGarbage).toBe(false);
     expect(l.state.players.every(p => !p.ready)).toBe(true);
   });
 
@@ -186,7 +186,7 @@ describe('match (2 players)', () => {
     expect(r.nextInMs).toBeNull();
     expect(l.state.phase).toBe('lobby');
     expect(l.state.players.every(p => !p.ready)).toBe(true);
-    expect(l.state.settings).toEqual({ fastGarbage: false, outbreak: false });
+    expect(l.state.settings).toEqual({ fastGarbage: true, outbreak: false });
   });
 
   it('play again: the next match starts once both players have asked, without the host pressing Start', () => {
@@ -530,7 +530,7 @@ describe('Outbreak mode', () => {
     const l = ready(4);
     expect(l.setSettings('bob-123', { outbreak: true }).ok).toBe(false); // not host
     expect(l.setSettings('alice-1', { outbreak: true }).ok).toBe(true);
-    expect(l.state.settings).toEqual({ fastGarbage: false, outbreak: true });
+    expect(l.state.settings).toEqual({ fastGarbage: true, outbreak: true });
     l.start('alice-1', 1);
     expect(l.garbageTargets('alice-1', [Color.Blue])).toEqual(['bob-123', 'carol-1', 'dave-12']);
     l.result('carol-1', 'toppedOut');
@@ -539,8 +539,8 @@ describe('Outbreak mode', () => {
 
   it('changing one setting leaves the other alone', () => {
     const l = ready(2);
-    l.setSettings('alice-1', { fastGarbage: true });
+    l.setSettings('alice-1', { fastGarbage: false });
     l.setSettings('alice-1', { outbreak: true });
-    expect(l.state.settings).toEqual({ fastGarbage: true, outbreak: true });
+    expect(l.state.settings).toEqual({ fastGarbage: false, outbreak: true });
   });
 });

@@ -276,6 +276,7 @@ canvas { display: block; image-rendering: pixelated; }
 }
 .pip.on { background: var(--yellow); }
 .fast-flag { font-size: 9px; color: var(--yellow); line-height: 1.8; }
+.fast-flag .nowrap { white-space: nowrap; } /* never strand ": ON" on its own line */
 
 /* Opponents' bottles line up with yours; each name sits just below its bottle. */
 .opponents { display: flex; align-items: center; gap: 32px; align-self: center; }

@@ -32,7 +32,7 @@ export const SKILL_LABEL: Record<CpuSkillName, string> = { easy: 'Easy', normal:
 
 const KEY = 'drzerg.settings';
 const DEFAULTS: Settings = {
-  mode: 'solo', name: '', level: 5, speed: 'med', cpuSkill: 'normal', cpuLevel: 5, cpuSpeed: 'med', cpuCount: 1, fastGarbage: false, outbreak: false, touch: 'off',
+  mode: 'cpu', name: '', level: 5, speed: 'med', cpuSkill: 'normal', cpuLevel: 5, cpuSpeed: 'med', cpuCount: 1, fastGarbage: true, outbreak: false, touch: 'off',
 };
 
 const clampLevel = (n: unknown, fallback: number) =>
@@ -45,7 +45,7 @@ export function loadSettings(): Settings {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? 'null');
     if (raw && typeof raw === 'object') {
       return {
-        mode: ['cpu', 'local', 'online'].includes(raw.mode) ? raw.mode : 'solo',
+        mode: ['solo', 'cpu', 'local', 'online'].includes(raw.mode) ? raw.mode : DEFAULTS.mode,
         name: typeof raw.name === 'string' ? raw.name.slice(0, 16) : '',
         level: clampLevel(raw.level, DEFAULTS.level),
         speed: isSpeed(raw.speed) ? raw.speed : DEFAULTS.speed,
@@ -53,7 +53,7 @@ export function loadSettings(): Settings {
         cpuLevel: clampLevel(raw.cpuLevel, DEFAULTS.cpuLevel),
         cpuSpeed: isSpeed(raw.cpuSpeed) ? raw.cpuSpeed : DEFAULTS.cpuSpeed,
         cpuCount: [1, 2, 3].includes(raw.cpuCount) ? raw.cpuCount : DEFAULTS.cpuCount,
-        fastGarbage: raw.fastGarbage === true,
+        fastGarbage: typeof raw.fastGarbage === 'boolean' ? raw.fastGarbage : DEFAULTS.fastGarbage,
         outbreak: raw.outbreak === true,
         // (Touch used to be on/off; "on" meant swipes, but buttons are the main touch style now.)
         touch: raw.touch === 'buttons' || raw.touch === 'swipe' ? raw.touch : raw.touch === true ? 'buttons' : 'off',

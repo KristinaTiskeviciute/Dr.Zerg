@@ -35,7 +35,7 @@ Changes to the original spec, agreed in planning (2026-10-24).
 - Speed (2026-10-25 retune): all skills soft-drop, including down to the right height before a tuck/slide-under (it used to wait out gravity there — that was most of its time). Average time to clear its own board at Med: Easy ~3.7 min (L5) / ~5.3 min (L10), Normal ~2.1 / ~3.4 min, Hard ~1.2 / ~2.2 min. Hard makes no deliberate mistakes.
 - One decision costs ~5–15 ms; if it ever causes a hitch on slow machines, spread the search over frames.
 - Garbage placement stays random (spread-out columns), not aimed at tall stacks. "Garbage prefers tall columns" could be an optional room setting later.
-- You and the CPU have separate level and speed. Fast garbage is a menu toggle in Vs CPU.
+- You and the CPU have separate level and speed. Fast garbage is a menu toggle in Vs CPU, on by default (also on by default in new online rooms). Vs CPU is the default menu mode so first-time visitors land on a match, not Solo.
 
 ## Online rooms (milestone 4)
 - Relay: `server/index.ts` (Cloudflare Worker + Durable Object per room via `partyserver`, location hint `enam`). Room logic in `server/lobby.ts`. Messages in `src/net/protocol.ts`; the server validates everything it receives.
